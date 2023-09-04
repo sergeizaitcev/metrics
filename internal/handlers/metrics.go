@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
+
+	"github.com/julienschmidt/httprouter"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 )
@@ -24,47 +25,45 @@ type metricsHandler struct {
 }
 
 func NewMetrics(s Storage) http.Handler {
-	mux := http.NewServeMux()
-	mux.Handle("/update/", &metricsHandler{storage: s})
-	return mux
+	m := &metricsHandler{storage: s}
+	router := httprouter.New()
+
+	router.POST("/update/:type/:name/:value", m.updateHandle)
+
+	return router
 }
 
-func (m *metricsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		statusMethodNotAllowed(w)
-		return
-	}
+func (m *metricsHandler) updateHandle(
+	w http.ResponseWriter,
+	r *http.Request,
+	params httprouter.Params,
+) {
+	name := params.ByName("name")
+	value := params.ByName("value")
 
-	urlpath := strings.TrimSuffix(r.URL.Path, "/")
-	path := strings.Split(urlpath[1:], "/")
-
-	if len(path) < 4 {
-		http.NotFound(w, r)
-		return
-	}
-	if len(path) > 4 || path[1] == "" || path[2] == "" || path[3] == "" {
+	if name == "" || value == "" {
 		statusBadRequest(w)
 		return
 	}
 
-	switch path[1] {
+	switch params.ByName("type") {
 	case "counter":
-		m.counterHandle(w, path)
+		m.addCounter(w, name, value)
 	case "gauge":
-		m.gaugeHandle(w, path)
+		m.setGauge(w, name, value)
 	default:
 		statusBadRequest(w)
 	}
 }
 
-func (m *metricsHandler) counterHandle(w http.ResponseWriter, path []string) {
-	value, err := strconv.ParseInt(path[3], 10, 64)
+func (m *metricsHandler) addCounter(w http.ResponseWriter, name, value string) {
+	v, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
 		statusBadRequest(w)
 		return
 	}
 
-	metric := metrics.Counter(path[2], value)
+	metric := metrics.Counter(name, v)
 
 	_, err = m.storage.Add(context.Background(), metric)
 	if err != nil {
@@ -75,14 +74,14 @@ func (m *metricsHandler) counterHandle(w http.ResponseWriter, path []string) {
 	statusOK(w)
 }
 
-func (m *metricsHandler) gaugeHandle(w http.ResponseWriter, path []string) {
-	value, err := strconv.ParseFloat(path[3], 64)
+func (m *metricsHandler) setGauge(w http.ResponseWriter, name, value string) {
+	v, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		statusBadRequest(w)
 		return
 	}
 
-	metric := metrics.Gauge(path[2], value)
+	metric := metrics.Gauge(name, v)
 
 	_, err = m.storage.Set(context.Background(), metric)
 	if err != nil {

@@ -59,16 +59,6 @@ func TestMetrics(t *testing.T) {
 		},
 		{
 			method:   http.MethodPost,
-			path:     "/update/unknown/unknown/unknown/unknown",
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			method:   http.MethodPost,
-			path:     "/update/counter/test/",
-			wantCode: http.StatusNotFound,
-		},
-		{
-			method:   http.MethodPost,
 			path:     "/update/unknown/test/100",
 			wantCode: http.StatusBadRequest,
 		},
