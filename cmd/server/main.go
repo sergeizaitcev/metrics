@@ -17,8 +17,13 @@ func main() {
 }
 
 func run() error {
-	fs := parseFlags()
+	fs, err := parseFlags()
+	if err != nil {
+		return err
+	}
+
 	storage := local.NewStorage()
 	handler := handlers.NewMetrics(storage)
+
 	return http.ListenAndServe(fs.addr, handler)
 }

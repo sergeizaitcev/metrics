@@ -1,16 +1,24 @@
 package main
 
-import "flag"
+import (
+	"flag"
+	"os"
+)
 
 type flags struct {
 	addr string
 }
 
-func parseFlags() *flags {
+func parseFlags() (*flags, error) {
 	var fs flags
 
 	flag.StringVar(&fs.addr, "a", "localhost:8080", "server address")
 	flag.Parse()
 
-	return &fs
+	addr := os.Getenv("ADDRESS")
+	if addr != "" {
+		fs.addr = addr
+	}
+
+	return &fs, nil
 }
