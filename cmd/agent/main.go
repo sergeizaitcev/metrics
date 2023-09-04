@@ -20,7 +20,10 @@ func main() {
 }
 
 func run() error {
-	fs := parseFlags()
+	fs, err := parseFlags()
+	if err != nil {
+		return err
+	}
 
 	pollTicker := time.NewTicker(fs.pollInterval)
 	defer pollTicker.Stop()
