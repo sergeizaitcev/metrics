@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -11,16 +10,6 @@ import (
 	"time"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
-)
-
-const (
-	host = "localhost"
-	port = "8080"
-)
-
-const (
-	pollInterval  = 2 * time.Second
-	reportInteval = 10 * time.Second
 )
 
 func main() {
@@ -31,10 +20,12 @@ func main() {
 }
 
 func run() error {
-	pollTicker := time.NewTicker(pollInterval)
+	fs := parseFlags()
+
+	pollTicker := time.NewTicker(fs.pollInterval)
 	defer pollTicker.Stop()
 
-	reportTicker := time.NewTicker(reportInteval)
+	reportTicker := time.NewTicker(fs.reportInterval)
 	defer reportTicker.Stop()
 
 	for {
@@ -52,7 +43,7 @@ func run() error {
 		}
 
 		for _, metric := range snapshot {
-			if err := reportMetric(metric); err != nil {
+			if err := reportMetric(fs.addr, metric); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				break
 			}
@@ -60,10 +51,10 @@ func run() error {
 	}
 }
 
-func reportMetric(m metrics.Metric) error {
+func reportMetric(addr string, m metrics.Metric) error {
 	u := &url.URL{
 		Scheme: "http",
-		Host:   net.JoinHostPort(host, port),
+		Host:   addr,
 	}
 
 	switch m.Kind() {
