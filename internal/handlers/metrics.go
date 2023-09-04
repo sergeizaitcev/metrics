@@ -21,6 +21,9 @@ type Storage interface {
 
 	// Get возвращает метрику.
 	Get(context.Context, string) (metrics.Metric, error)
+
+	// GetAll возвращает все метрики.
+	GetAll(context.Context) ([]metrics.Metric, error)
 }
 
 type metricsHandler struct {
@@ -31,8 +34,9 @@ func NewMetrics(s Storage) http.Handler {
 	m := &metricsHandler{storage: s}
 	router := httprouter.New()
 
-	router.POST("/update/:metric/:name/:value", m.updateHandle)
+	router.Handler(http.MethodGet, "/", http.HandlerFunc(m.getAll))
 	router.GET("/value/:metric/:name", m.getHandle)
+	router.POST("/update/:metric/:name/:value", m.updateHandle)
 
 	return router
 }
@@ -119,6 +123,20 @@ func (m *metricsHandler) getMetric(w http.ResponseWriter, name string) {
 	status(w, http.StatusOK, metric.String())
 }
 
+func (m *metricsHandler) getAll(w http.ResponseWriter, r *http.Request) {
+	values, err := m.storage.GetAll(context.Background())
+	if err != nil {
+		statusInternalServerError(w)
+		return
+	}
+
+	status(w, http.StatusOK)
+
+	for _, value := range values {
+		fmt.Fprintf(w, "%s=%s\n", value.Name(), value.String())
+	}
+}
+
 func statusOK(w http.ResponseWriter) {
 	status(w, http.StatusOK, "200 OK")
 }
@@ -143,5 +161,8 @@ func status(w http.ResponseWriter, code int, a ...any) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(code)
-	fmt.Fprintln(w, a...)
+
+	if len(a) > 0 {
+		fmt.Fprintln(w, a...)
+	}
 }

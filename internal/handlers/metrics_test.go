@@ -46,11 +46,6 @@ func TestMetrics_update(t *testing.T) {
 		},
 		{
 			method:   http.MethodPost,
-			path:     "/",
-			wantCode: http.StatusNotFound,
-		},
-		{
-			method:   http.MethodPost,
 			path:     "/update/unknown",
 			wantCode: http.StatusNotFound,
 		},
@@ -137,4 +132,25 @@ func TestMetrics_get(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMetrics_all(t *testing.T) {
+	ctx := context.Background()
+
+	storage := local.NewStorage()
+	storage.Set(ctx, metrics.Counter("testCounter", 1))
+	storage.Set(ctx, metrics.Counter("testCounter2", 2))
+	storage.Set(ctx, metrics.Gauge("testGauge", 1))
+	storage.Set(ctx, metrics.Gauge("testGauge2", 2))
+	storage.Set(ctx, metrics.Gauge("testGauge3", 3))
+
+	handler := handlers.NewMetrics(storage)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	t.Logf("\n%s", rec.Body.String())
 }
