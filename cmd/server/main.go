@@ -2,17 +2,11 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 
 	"github.com/sergeizaitcev/metrics/internal/handlers"
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
-)
-
-const (
-	host = "localhost"
-	port = "8080"
 )
 
 func main() {
@@ -23,8 +17,8 @@ func main() {
 }
 
 func run() error {
+	fs := parseFlags()
 	storage := local.NewStorage()
 	handler := handlers.NewMetrics(storage)
-	addr := net.JoinHostPort(host, port)
-	return http.ListenAndServe(addr, handler)
+	return http.ListenAndServe(fs.addr, handler)
 }
