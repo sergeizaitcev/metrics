@@ -130,7 +130,7 @@ func (m *metricsHandler) getAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status(w, http.StatusOK)
+	statusOK(w)
 
 	for _, value := range values {
 		fmt.Fprintf(w, "%s=%s\n", value.Name(), value.String())
@@ -138,7 +138,7 @@ func (m *metricsHandler) getAll(w http.ResponseWriter, r *http.Request) {
 }
 
 func statusOK(w http.ResponseWriter) {
-	status(w, http.StatusOK, "200 OK")
+	status(w, http.StatusOK, "")
 }
 
 func statusNotFound(w http.ResponseWriter) {
@@ -157,12 +157,12 @@ func statusInternalServerError(w http.ResponseWriter) {
 	status(w, http.StatusInternalServerError, "500 internal server error")
 }
 
-func status(w http.ResponseWriter, code int, a ...any) {
+func status(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(code)
 
-	if len(a) > 0 {
-		fmt.Fprintln(w, a...)
+	if msg != "" {
+		fmt.Fprintln(w, msg)
 	}
 }
