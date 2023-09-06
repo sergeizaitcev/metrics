@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"time"
@@ -15,19 +17,19 @@ type flags struct {
 
 func parseFlags() (*flags, error) {
 	var fs flags
-	var reportInterval, pollInterval int
+	var reportInterval, pollInterval int64
 
 	flag.StringVar(&fs.addr, "a", "localhost:8080", "server address")
-	flag.IntVar(&reportInterval, "r", 10, "report interval in seconds")
-	flag.IntVar(&pollInterval, "p", 2, "poll interval in seconds")
+	flag.Int64Var(&reportInterval, "r", 10, "report interval in seconds")
+	flag.Int64Var(&pollInterval, "p", 2, "poll interval in seconds")
 
 	flag.Parse()
 
-	fs.reportInterval = time.Duration(reportInterval) * time.Second
-	fs.pollInterval = time.Duration(pollInterval) * time.Second
-
 	addr := os.Getenv("ADDRESS")
 	if addr != "" {
+		if _, _, err := net.SplitHostPort(addr); err != nil {
+			return nil, fmt.Errorf("main: ADDRESS is invalid: %s", err)
+		}
 		fs.addr = addr
 	}
 
@@ -35,19 +37,22 @@ func parseFlags() (*flags, error) {
 	if poll != "" {
 		v, err := strconv.ParseInt(poll, 10, 64)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("main: POLL_INTERVAL is invalid: %s", err)
 		}
-		fs.pollInterval = time.Duration(v) * time.Second
+		pollInterval = v
 	}
 
 	report := os.Getenv("REPORT_INTERVAL")
 	if report != "" {
 		v, err := strconv.ParseInt(report, 10, 64)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("main: REPORT_INTERVAL is invalid: %s", err)
 		}
-		fs.reportInterval = time.Duration(v) * time.Second
+		reportInterval = v
 	}
+
+	fs.reportInterval = time.Duration(reportInterval) * time.Second
+	fs.pollInterval = time.Duration(pollInterval) * time.Second
 
 	return &fs, nil
 }
