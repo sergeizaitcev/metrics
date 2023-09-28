@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path"
+	"syscall"
 	"time"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
@@ -20,21 +24,27 @@ func main() {
 }
 
 func run() error {
-	fs, err := parseFlags()
-	if err != nil {
+	if err := parseFlags(); err != nil {
 		return err
 	}
 
-	pollTicker := time.NewTicker(fs.pollInterval)
+	baseCtx := context.Background()
+
+	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	pollTicker := time.NewTicker(time.Duration(flagPollInterval))
 	defer pollTicker.Stop()
 
-	reportTicker := time.NewTicker(fs.reportInterval)
+	reportTicker := time.NewTicker(time.Duration(flagReportInterval))
 	defer reportTicker.Stop()
 
 	for {
 		var report bool
 
 		select {
+		case <-ctx.Done():
+			return nil
 		case <-pollTicker.C:
 		case <-reportTicker.C:
 			report = true
@@ -46,7 +56,7 @@ func run() error {
 		}
 
 		for _, metric := range snapshot {
-			if err := reportMetric(fs.addr, metric); err != nil {
+			if err := sendMetric(ctx, metric); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				break
 			}
@@ -54,10 +64,10 @@ func run() error {
 	}
 }
 
-func reportMetric(addr string, m metrics.Metric) error {
-	u := &url.URL{
+func sendMetric(ctx context.Context, m metrics.Metric) error {
+	u := url.URL{
 		Scheme: "http",
-		Host:   addr,
+		Host:   flagAddress,
 	}
 
 	switch m.Kind() {
@@ -69,7 +79,17 @@ func reportMetric(addr string, m metrics.Metric) error {
 		return fmt.Errorf("unknown metric kind: %s", m.Kind())
 	}
 
-	res, err := http.Post(u.String(), "text/plain; charset=utf-8", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Add("Content-Type", "text/plain; charset=utf-8")
+
+	res, err := http.DefaultClient.Do(req)
+	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

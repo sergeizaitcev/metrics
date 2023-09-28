@@ -1,45 +1,163 @@
 package metrics_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
+	"github.com/sergeizaitcev/metrics/internal/metrics/mocks"
 )
 
 func TestMetrics(t *testing.T) {
-	t.Run("unknown", func(t *testing.T) {
-		var metric metrics.Metric
+	ctx := context.Background()
 
-		require.Empty(t, metric.Name())
-		require.Empty(t, metric.Kind())
+	t.Run("save", func(t *testing.T) {
+		testCases := []struct {
+			name      string
+			method    string
+			metric    metrics.Metric
+			mockError error
+			wantError bool
+		}{
+			{
+				name:   "add counter",
+				method: "Add",
+				metric: metrics.Counter("counter", 1),
+			},
+			{
+				name:      "add counter error",
+				method:    "Add",
+				metric:    metrics.Counter("counter", 1),
+				mockError: errors.New("error"),
+				wantError: true,
+			},
+			{
+				name:   "set gauge",
+				method: "Set",
+				metric: metrics.Gauge("gauge", 1),
+			},
+			{
+				name:      "set gauge error",
+				method:    "Set",
+				metric:    metrics.Gauge("gauge", 1),
+				mockError: errors.New("error"),
+				wantError: true,
+			},
+			{
+				name:      "unknown kind",
+				metric:    metrics.Metric{},
+				wantError: true,
+			},
+		}
 
-		require.Panics(t, func() { metric.Int64() })
-		require.Panics(t, func() { metric.Float64() })
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				storage := mocks.NewMockStorage()
+				if tc.method != "" {
+					storage.On(tc.method, mock.Anything, tc.metric).
+						Return(metrics.Metric{}, tc.mockError)
+				}
+
+				m := metrics.NewMetrics(storage)
+
+				err := m.Save(ctx, tc.metric)
+				if tc.wantError {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			})
+		}
 	})
 
-	t.Run("counter", func(t *testing.T) {
-		counter := metrics.Counter("test", 1)
+	t.Run("lookup", func(t *testing.T) {
+		testCases := []struct {
+			name       string
+			metric     string
+			mockMetric metrics.Metric
+			mockError  error
+			wantError  bool
+		}{
+			{
+				name:       "found",
+				metric:     "counter",
+				mockMetric: metrics.Counter("counter", 1),
+			},
+			{
+				name:      "not found",
+				metric:    "counter",
+				wantError: true,
+			},
+			{
+				name:      "error",
+				metric:    "counter",
+				mockError: errors.New("error"),
+				wantError: true,
+			},
+		}
 
-		require.Equal(t, "Counter", counter.Kind().String())
-		require.Equal(t, "test", counter.Name())
-		require.Equal(t, "1", counter.String())
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				storage := mocks.NewMockStorage()
+				storage.On("Get", ctx, tc.metric).Return(tc.mockMetric, tc.mockError)
 
-		require.NotPanics(t, func() { counter.Int64() })
-		require.Panics(t, func() { counter.Float64() })
-		require.EqualValues(t, 1, counter.Int64())
+				m := metrics.NewMetrics(storage)
+
+				got, err := m.Lookup(ctx, tc.metric)
+				if tc.wantError {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+					require.True(t, tc.mockMetric.Equal(got))
+				}
+			})
+		}
 	})
 
-	t.Run("gauge", func(t *testing.T) {
-		gauge := metrics.Gauge("test", 1)
+	t.Run("all", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			mockMetrics []metrics.Metric
+			mockError   error
+			wantError   bool
+		}{
+			{
+				name: "success",
+				mockMetrics: []metrics.Metric{
+					metrics.Counter("counter", 1),
+					metrics.Gauge("gauge", 2),
+				},
+			},
+			{
+				name:      "error",
+				mockError: errors.New("error"),
+				wantError: true,
+			},
+		}
 
-		require.Equal(t, "Gauge", gauge.Kind().String())
-		require.Equal(t, "test", gauge.Name())
-		require.Equal(t, "1", gauge.String())
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				storage := mocks.NewMockStorage()
+				storage.On("GetAll", ctx).Return(tc.mockMetrics, tc.mockError)
 
-		require.NotPanics(t, func() { gauge.Float64() })
-		require.Panics(t, func() { gauge.Int64() })
-		require.EqualValues(t, 1, gauge.Float64())
+				m := metrics.NewMetrics(storage)
+
+				got, err := m.All(ctx)
+				if tc.wantError {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, len(tc.mockMetrics), len(got))
+
+					for i := range tc.mockMetrics {
+						require.True(t, tc.mockMetrics[i].Equal(got[i]))
+					}
+				}
+			})
+		}
 	})
 }

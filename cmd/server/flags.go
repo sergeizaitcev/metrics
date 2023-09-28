@@ -2,23 +2,38 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"net"
 	"os"
 )
 
-type flags struct {
-	addr string
+var flagAddress string
+
+func init() {
+	flag.StringVar(&flagAddress, "a", "localhost:8080", "server address")
 }
 
-func parseFlags() (*flags, error) {
-	var fs flags
+func parseFlags() (err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			err = fmt.Errorf("%s", e)
+		}
+	}()
 
-	flag.StringVar(&fs.addr, "a", "localhost:8080", "server address")
-	flag.Parse()
+	err = flag.CommandLine.Parse(os.Args[1:])
+	if err != nil {
+		return err
+	}
 
 	addr := os.Getenv("ADDRESS")
 	if addr != "" {
-		fs.addr = addr
+		flagAddress = addr
 	}
 
-	return &fs, nil
+	_, _, err = net.SplitHostPort(flagAddress)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

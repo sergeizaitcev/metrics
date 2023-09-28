@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -9,50 +10,75 @@ import (
 	"time"
 )
 
-type flags struct {
-	addr           string
-	reportInterval time.Duration
-	pollInterval   time.Duration
+var (
+	flagAddress        string
+	flagReportInterval = duration(10 * time.Second)
+	flagPollInterval   = duration(2 * time.Second)
+)
+
+func init() {
+	flag.StringVar(&flagAddress, "a", "localhost:8080", "server address")
+	flag.Var(&flagReportInterval, "r", "report interval in seconds")
+	flag.Var(&flagPollInterval, "p", "poll interval in seconds")
 }
 
-func parseFlags() (*flags, error) {
-	var fs flags
-	var reportInterval, pollInterval int64
+var _ flag.Value = (*duration)(nil)
 
-	flag.StringVar(&fs.addr, "a", "localhost:8080", "server address")
-	flag.Int64Var(&reportInterval, "r", 10, "report interval in seconds")
-	flag.Int64Var(&pollInterval, "p", 2, "poll interval in seconds")
+type duration time.Duration
 
-	flag.Parse()
+func (d duration) String() string {
+	return time.Duration(d).String()
+}
+
+func (d *duration) Set(value string) error {
+	v, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return err
+	}
+	if v <= 0 {
+		return errors.New("value must be is greater than zero")
+	}
+	*d = duration(time.Duration(v) * time.Second)
+	return nil
+}
+
+func parseFlags() (err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			err = fmt.Errorf("%s", e)
+		}
+	}()
+
+	err = flag.CommandLine.Parse(os.Args[1:])
+	if err != nil {
+		return err
+	}
 
 	addr := os.Getenv("ADDRESS")
 	if addr != "" {
-		if _, _, err := net.SplitHostPort(addr); err != nil {
-			return nil, fmt.Errorf("main: ADDRESS is invalid: %s", err)
-		}
-		fs.addr = addr
+		flagAddress = addr
+	}
+
+	_, _, err = net.SplitHostPort(flagAddress)
+	if err != nil {
+		return err
 	}
 
 	poll := os.Getenv("POLL_INTERVAL")
 	if poll != "" {
-		v, err := strconv.ParseInt(poll, 10, 64)
+		err = flagPollInterval.Set(poll)
 		if err != nil {
-			return nil, fmt.Errorf("main: POLL_INTERVAL is invalid: %s", err)
+			return err
 		}
-		pollInterval = v
 	}
 
 	report := os.Getenv("REPORT_INTERVAL")
 	if report != "" {
-		v, err := strconv.ParseInt(report, 10, 64)
+		err = flagReportInterval.Set(report)
 		if err != nil {
-			return nil, fmt.Errorf("main: REPORT_INTERVAL is invalid: %s", err)
+			return err
 		}
-		reportInterval = v
 	}
 
-	fs.reportInterval = time.Duration(reportInterval) * time.Second
-	fs.pollInterval = time.Duration(pollInterval) * time.Second
-
-	return &fs, nil
+	return nil
 }
