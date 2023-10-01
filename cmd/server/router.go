@@ -15,13 +15,13 @@ type handlers struct {
 	metrics *metrics.Metrics
 }
 
-func newRouter(m *metrics.Metrics) http.Handler {
+func newRouter(m *metrics.Metrics, middlewares ...middleware) http.Handler {
 	handlers := handlers{metrics: m}
 
 	router := httprouter.New()
-	router.GET("/", handlers.all)
-	router.GET("/value/:metric/:name", handlers.get)
-	router.POST("/update/:metric/:name/:value", handlers.update)
+	router.GET("/", use(handlers.all, middlewares...))
+	router.GET("/value/:metric/:name", use(handlers.get, middlewares...))
+	router.POST("/update/:metric/:name/:value", use(handlers.update, middlewares...))
 
 	return router
 }

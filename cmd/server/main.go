@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
 )
@@ -28,7 +30,19 @@ func run() error {
 
 	storage := local.NewStorage()
 	metrics := metrics.NewMetrics(storage)
-	router := newRouter(metrics)
+
+	logger := zerolog.New(os.Stdout)
+	paramsFunc := func(p *params) {
+		entry := logger.Info()
+		entry.Str("method", p.method)
+		entry.Str("uri", p.uri)
+		entry.Int("statusCode", p.statusCode)
+		entry.Dur("duration", p.duration)
+		entry.Int("size", len(p.body))
+		entry.Send()
+	}
+
+	router := newRouter(metrics, trace(paramsFunc))
 
 	return listenAndServe(router)
 }
