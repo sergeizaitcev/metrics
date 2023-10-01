@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/julienschmidt/httprouter"
 
@@ -20,8 +22,12 @@ func newRouter(m *metrics.Metrics, middlewares ...middleware) http.Handler {
 
 	router := httprouter.New()
 	router.GET("/", use(handlers.all, middlewares...))
+
 	router.GET("/value/:metric/:name", use(handlers.get, middlewares...))
+	router.POST("/value", use(handlers.getV2, middlewares...))
+
 	router.POST("/update/:metric/:name/:value", use(handlers.update, middlewares...))
+	router.POST("/update", use(handlers.updateV2, middlewares...))
 
 	return router
 }
@@ -42,6 +48,7 @@ func (h *handlers) all(w http.ResponseWriter, r *http.Request, _ httprouter.Para
 	}
 }
 
+// Deprecated: используется для обратной совместимости.
 func (h *handlers) get(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 	kind := metrics.ParseKind(p.ByName("metric"))
 	if kind == metrics.KindUnknown {
@@ -65,6 +72,42 @@ func (h *handlers) get(w http.ResponseWriter, r *http.Request, p httprouter.Para
 	fmt.Fprintln(w, metric.String())
 }
 
+func (h *handlers) getV2(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	ctype := r.Header.Get("Content-Type")
+	if !strings.Contains(ctype, "application/json") {
+		statusUnprocessableEntity(w)
+		return
+	}
+
+	var metric metrics.Metric
+
+	err := json.NewDecoder(r.Body).Decode(&metric)
+	if err != nil || metric.IsEmpty() {
+		statusBadRequest(w)
+		return
+	}
+
+	ctx := r.Context()
+
+	actual, err := h.metrics.Lookup(ctx, metric.Name())
+	if errors.Is(err, metrics.ErrNotFound) {
+		statusNotFound(w)
+		return
+	}
+	if err != nil {
+		statusInternalServerError(w)
+		return
+	}
+	if metric.Kind() != actual.Kind() {
+		statusNotFound(w)
+		return
+	}
+
+	statusJSON(w, http.StatusOK)
+	json.NewEncoder(w).Encode(&actual)
+}
+
+// Deprecated: используется для обратной совместимости.
 func (h *handlers) update(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 	kind := metrics.ParseKind(p.ByName("metric"))
 	if kind == metrics.KindUnknown {
@@ -96,7 +139,7 @@ func (h *handlers) update(w http.ResponseWriter, r *http.Request, p httprouter.P
 
 	ctx := r.Context()
 
-	err := h.metrics.Save(ctx, metric)
+	_, err := h.metrics.Save(ctx, metric)
 	if err != nil {
 		statusInternalServerError(w)
 		return
@@ -105,24 +148,61 @@ func (h *handlers) update(w http.ResponseWriter, r *http.Request, p httprouter.P
 	statusOK(w)
 }
 
+func (h *handlers) updateV2(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+	ctype := r.Header.Get("Content-Type")
+	if !strings.Contains(ctype, "application/json") {
+		statusUnprocessableEntity(w)
+		return
+	}
+
+	var metric metrics.Metric
+
+	err := json.NewDecoder(r.Body).Decode(&metric)
+	if err != nil || metric.IsEmpty() {
+		statusBadRequest(w)
+		return
+	}
+
+	ctx := r.Context()
+
+	actual, err := h.metrics.Save(ctx, metric)
+	if err != nil {
+		statusInternalServerError(w)
+		return
+	}
+
+	statusJSON(w, http.StatusOK)
+	json.NewEncoder(w).Encode(&actual)
+}
+
 func statusOK(w http.ResponseWriter) {
-	status(w, http.StatusOK)
+	statusText(w, http.StatusOK)
 }
 
 func statusNotFound(w http.ResponseWriter) {
-	status(w, http.StatusNotFound)
+	statusText(w, http.StatusNotFound)
 }
 
 func statusBadRequest(w http.ResponseWriter) {
-	status(w, http.StatusBadRequest)
+	statusText(w, http.StatusBadRequest)
+}
+
+func statusUnprocessableEntity(w http.ResponseWriter) {
+	statusText(w, http.StatusUnprocessableEntity)
 }
 
 func statusInternalServerError(w http.ResponseWriter) {
-	status(w, http.StatusInternalServerError)
+	statusText(w, http.StatusInternalServerError)
 }
 
-func status(w http.ResponseWriter, code int) {
+func statusText(w http.ResponseWriter, code int) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(code)
+}
+
+func statusJSON(w http.ResponseWriter, code int) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(code)
 }

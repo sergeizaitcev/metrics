@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
@@ -59,7 +60,6 @@ func TestHandlers_all(t *testing.T) {
 func TestHandlers_update(t *testing.T) {
 	testCases := []struct {
 		name      string
-		method    string
 		metric    metrics.Metric
 		mockError error
 		path      string
@@ -72,7 +72,6 @@ func TestHandlers_update(t *testing.T) {
 		},
 		{
 			name:     "counter",
-			method:   "Add",
 			metric:   metrics.Counter("counter", 1),
 			path:     "/update/counter/counter/1",
 			wantCode: http.StatusOK,
@@ -84,7 +83,6 @@ func TestHandlers_update(t *testing.T) {
 		},
 		{
 			name:      "counter don't save",
-			method:    "Add",
 			metric:    metrics.Counter("counter", 1),
 			mockError: errors.New("error"),
 			path:      "/update/counter/counter/1",
@@ -92,7 +90,6 @@ func TestHandlers_update(t *testing.T) {
 		},
 		{
 			name:     "gauge",
-			method:   "Set",
 			metric:   metrics.Gauge("gauge", 1),
 			path:     "/update/gauge/gauge/1",
 			wantCode: http.StatusOK,
@@ -104,7 +101,6 @@ func TestHandlers_update(t *testing.T) {
 		},
 		{
 			name:      "gauge don't save",
-			method:    "Set",
 			metric:    metrics.Gauge("gauge", 1),
 			mockError: errors.New("error"),
 			path:      "/update/gauge/gauge/1",
@@ -115,8 +111,12 @@ func TestHandlers_update(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			if tc.method != "" {
-				storage.On(tc.method, mock.Anything, tc.metric).
+			switch tc.metric.Kind() {
+			case metrics.KindCounter:
+				storage.On("Add", mock.Anything, tc.metric).
+					Return(metrics.Metric{}, tc.mockError)
+			case metrics.KindGauge:
+				storage.On("Set", mock.Anything, tc.metric).
 					Return(metrics.Metric{}, tc.mockError)
 			}
 
@@ -128,6 +128,96 @@ func TestHandlers_update(t *testing.T) {
 			router.ServeHTTP(rec, req)
 
 			require.Equal(t, tc.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandlers_updateV2(t *testing.T) {
+	testCases := []struct {
+		name       string
+		metric     metrics.Metric
+		mockMetric metrics.Metric
+		mockError  error
+		noHeader   bool
+		body       string
+		wantCode   int
+		wantBody   string
+	}{
+		{
+			name:     "unknown content type",
+			noHeader: true,
+			wantCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name:     "empty body",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "empty counter",
+			body:     `{}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:       "counter",
+			metric:     metrics.Counter("test", 1),
+			mockMetric: metrics.Counter("test", 2),
+			body:       `{"type":"counter","id":"test","delta":1}`,
+			wantCode:   http.StatusOK,
+			wantBody:   `{"type":"counter","id":"test","delta":2}`,
+		},
+		{
+			name:      "counter don't save",
+			metric:    metrics.Counter("test", 1),
+			mockError: errors.New("error"),
+			body:      `{"type":"counter","id":"test","delta":1}`,
+			wantCode:  http.StatusInternalServerError,
+		},
+		{
+			name:       "gauge",
+			metric:     metrics.Gauge("test", 1),
+			mockMetric: metrics.Gauge("test", 2),
+			body:       `{"type":"gauge","id":"test","value":1}`,
+			wantCode:   http.StatusOK,
+			wantBody:   `{"type":"gauge","id":"test","value":2}`,
+		},
+		{
+			name:      "gauge don't save",
+			metric:    metrics.Gauge("test", 1),
+			mockError: errors.New("error"),
+			body:      `{"type":"gauge","id":"test","value":1}`,
+			wantCode:  http.StatusInternalServerError,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			storage := mocks.NewMockStorage()
+			switch tc.metric.Kind() {
+			case metrics.KindCounter:
+				storage.On("Add", mock.Anything, tc.metric).
+					Return(tc.mockMetric, tc.mockError)
+			case metrics.KindGauge:
+				storage.On("Set", mock.Anything, tc.metric).
+					Return(tc.mockMetric, tc.mockError)
+			}
+
+			router := newRouter(metrics.NewMetrics(storage))
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(tc.body))
+			if !tc.noHeader {
+				req.Header.Add("Content-Type", "application/json")
+			}
+
+			router.ServeHTTP(rec, req)
+
+			wantBody := tc.wantBody
+			if wantBody != "" {
+				wantBody += "\n"
+			}
+
+			require.Equal(t, tc.wantCode, rec.Code)
+			require.Equal(t, wantBody, rec.Body.String())
 		})
 	}
 }
@@ -209,6 +299,119 @@ func TestHandlers_get(t *testing.T) {
 
 			require.Equal(t, tc.wantCode, rec.Code)
 			require.Equal(t, tc.wantBody, rec.Body.String())
+		})
+	}
+}
+
+func TestHandlers_getV2(t *testing.T) {
+	testCases := []struct {
+		name       string
+		metric     string
+		mockMetric metrics.Metric
+		mockError  error
+		body       string
+		noHeader   bool
+		wantCode   int
+		wantBody   string
+	}{
+		{
+			name:     "unknown content type",
+			noHeader: true,
+			wantCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name:     "empty body",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "empty counter",
+			body:     `{}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:       "counter",
+			metric:     "test",
+			mockMetric: metrics.Counter("test", 1),
+			body:       `{"type":"counter","id":"test"}`,
+			wantCode:   http.StatusOK,
+			wantBody:   `{"type":"counter","id":"test","delta":1}`,
+		},
+		{
+			name:      "counter not found",
+			metric:    "test",
+			mockError: metrics.ErrNotFound,
+			body:      `{"type":"counter","id":"test"}`,
+			wantCode:  http.StatusNotFound,
+		},
+		{
+			name:      "counter internal error",
+			metric:    "test",
+			mockError: errors.New("error"),
+			body:      `{"type":"counter","id":"test"}`,
+			wantCode:  http.StatusInternalServerError,
+		},
+		{
+			name:       "counter not equal",
+			metric:     "test",
+			mockMetric: metrics.Gauge("test", 1),
+			body:       `{"type":"counter","id":"test"}`,
+			wantCode:   http.StatusNotFound,
+		},
+		{
+			name:       "gauge",
+			metric:     "test",
+			mockMetric: metrics.Gauge("test", 1),
+			body:       `{"type":"gauge","id":"test"}`,
+			wantCode:   http.StatusOK,
+			wantBody:   `{"type":"gauge","id":"test","value":1}`,
+		},
+		{
+			name:      "gauge not found",
+			metric:    "test",
+			mockError: metrics.ErrNotFound,
+			body:      `{"type":"gauge","id":"test"}`,
+			wantCode:  http.StatusNotFound,
+		},
+		{
+			name:      "gauge internal error",
+			metric:    "test",
+			mockError: errors.New("error"),
+			body:      `{"type":"gauge","id":"test"}`,
+			wantCode:  http.StatusInternalServerError,
+		},
+		{
+			name:       "gauge not equal",
+			metric:     "test",
+			mockMetric: metrics.Counter("test", 1),
+			body:       `{"type":"gauge","id":"test"}`,
+			wantCode:   http.StatusNotFound,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			storage := mocks.NewMockStorage()
+			if tc.metric != "" {
+				storage.On("Get", mock.Anything, tc.metric).Return(tc.mockMetric, tc.mockError)
+			}
+
+			router := newRouter(metrics.NewMetrics(storage))
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/value", strings.NewReader(tc.body))
+			if !tc.noHeader {
+				req.Header.Set("Content-Type", "application/json")
+			}
+
+			router.ServeHTTP(rec, req)
+
+			wantBody := tc.wantBody
+			if wantBody != "" {
+				wantBody += "\n"
+			}
+
+			require.Equal(t, tc.wantCode, rec.Code)
+			require.Equal(t, wantBody, rec.Body.String())
 		})
 	}
 }

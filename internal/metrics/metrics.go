@@ -35,22 +35,28 @@ func NewMetrics(s Storager) *Metrics {
 }
 
 // Save сохраняет метрику.
-func (m *Metrics) Save(ctx context.Context, metric Metric) error {
+func (m *Metrics) Save(ctx context.Context, metric Metric) (Metric, error) {
+	var (
+		actual Metric
+		err    error
+	)
+
 	switch metric.Kind() {
 	case KindCounter:
-		_, err := m.storage.Add(ctx, metric)
+		actual, err = m.storage.Add(ctx, metric)
 		if err != nil {
-			return fmt.Errorf("metrics: adding a counter: %w", err)
+			return Metric{}, fmt.Errorf("metrics: adding a counter: %w", err)
 		}
 	case KindGauge:
-		_, err := m.storage.Set(ctx, metric)
+		actual, err = m.storage.Set(ctx, metric)
 		if err != nil {
-			return fmt.Errorf("metrics: setting a gauge: %w", err)
+			return Metric{}, fmt.Errorf("metrics: setting a gauge: %w", err)
 		}
 	default:
-		return fmt.Errorf("metrics: unsupported kind: %s", metric.Kind())
+		return Metric{}, fmt.Errorf("metrics: unsupported kind: %s", metric.Kind())
 	}
-	return nil
+
+	return actual, nil
 }
 
 // Lookup выполняет поиск метрики по её имени.

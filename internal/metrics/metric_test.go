@@ -1,6 +1,7 @@
 package metrics_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -118,5 +119,137 @@ func TestMetric_Equal(t *testing.T) {
 	for _, tc := range testCases {
 		got := tc.a.Equal(tc.b)
 		require.Equal(t, tc.wantBool, got)
+	}
+}
+
+func TestMetric_IsEmpty(t *testing.T) {
+	testCases := []struct {
+		name   string
+		metric metrics.Metric
+		want   bool
+	}{
+		{
+			name:   "empty",
+			metric: metrics.Metric{},
+			want:   true,
+		},
+		{
+			name:   "counter not empty",
+			metric: metrics.Counter("", 0),
+			want:   false,
+		},
+		{
+			name:   "gauge not empty",
+			metric: metrics.Gauge("", 0),
+			want:   false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.metric.IsEmpty()
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestMetric_Marshal(t *testing.T) {
+	testCases := []struct {
+		name      string
+		metric    metrics.Metric
+		wantData  string
+		wantError bool
+	}{
+		{
+			name:     "empty",
+			metric:   metrics.Metric{},
+			wantData: "{}",
+		},
+		{
+			name:     "counter",
+			metric:   metrics.Counter("test", 1),
+			wantData: `{"type":"counter","id":"test","delta":1}`,
+		},
+		{
+			name:     "gauge",
+			metric:   metrics.Gauge("test", 0.00005),
+			wantData: `{"type":"gauge","id":"test","value":0.00005}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(&tc.metric)
+
+			if tc.wantError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.wantData, string(data))
+			}
+		})
+	}
+}
+
+func TestMetric_Unmarshal(t *testing.T) {
+	testCases := []struct {
+		name       string
+		data       []byte
+		wantMetric metrics.Metric
+		wantError  bool
+	}{
+		{
+			name: "empty",
+			data: []byte("{}"),
+		},
+		{
+			name:       "counter1",
+			data:       []byte(`{"type":"counter","id":"test","delta":1}`),
+			wantMetric: metrics.Counter("test", 1),
+		},
+		{
+			name:       "counter2",
+			data:       []byte(`{"type":"counter","id":"test"}`),
+			wantMetric: metrics.Counter("test", 0),
+		},
+		{
+			name:       "gauge1",
+			data:       []byte(`{"type":"gauge","id":"test","value":0.00005}`),
+			wantMetric: metrics.Gauge("test", 0.00005),
+		},
+		{
+			name:       "gauge2",
+			data:       []byte(`{"type":"gauge","id":"test"}`),
+			wantMetric: metrics.Gauge("test", 0),
+		},
+		{
+			name:      "type is blank",
+			data:      []byte(`{"type":""}`),
+			wantError: true,
+		},
+		{
+			name:      "id is blank",
+			data:      []byte(`{"type":"counter","id":""}`),
+			wantError: true,
+		},
+		{
+			name:      "type is unknown",
+			data:      []byte(`{"type":"unknown","id":"test","delta":1}`),
+			wantError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got metrics.Metric
+			err := json.Unmarshal(tc.data, &got)
+
+			if tc.wantError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.True(t, tc.wantMetric.Equal(got))
+			}
+		})
 	}
 }

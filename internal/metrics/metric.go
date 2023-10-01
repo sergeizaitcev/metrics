@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -127,6 +129,11 @@ func (v value) float() float64 {
 	return math.Float64frombits(v.num)
 }
 
+var (
+	_ json.Marshaler   = (*Metric)(nil)
+	_ json.Unmarshaler = (*Metric)(nil)
+)
+
 // Metric определяет метрику.
 type Metric struct {
 	kind  Kind
@@ -182,4 +189,81 @@ func (m *Metric) Float64() float64 {
 // Equal возвращает true, если метрика равна x.
 func (m *Metric) Equal(x Metric) bool {
 	return m.kind == x.kind && m.name == x.name && m.value.Equal(x.value)
+}
+
+// IsEmpty возвращает true, если метрика пуста.
+func (m *Metric) IsEmpty() bool {
+	return m.Equal(Metric{})
+}
+
+type metric struct {
+	Kind  string   `json:"type"`            // тип метрики.
+	ID    string   `json:"id"`              // имя метрики.
+	Delta *int64   `json:"delta,omitempty"` // значение метрики counter.
+	Value *float64 `json:"value,omitempty"` // значение метрики gauge.
+}
+
+func (m *Metric) MarshalJSON() ([]byte, error) {
+	if m.Kind() == KindUnknown {
+		return []byte("{}"), nil
+	}
+
+	obj := metric{
+		Kind: strings.ToLower(m.Kind().String()),
+		ID:   m.Name(),
+	}
+
+	switch m.Kind() {
+	case KindCounter:
+		v := m.Int64()
+		obj.Delta = &v
+	case KindGauge:
+		v := m.Float64()
+		obj.Value = &v
+	}
+
+	return json.Marshal(&obj)
+}
+
+func (m *Metric) UnmarshalJSON(data []byte) error {
+	if string(data) == "{}" {
+		*m = Metric{}
+		return nil
+	}
+
+	var obj metric
+
+	err := json.Unmarshal(data, &obj)
+	if err != nil {
+		return err
+	}
+
+	if obj.Kind == "" {
+		return errors.New("metrics: the metric type should not be empty")
+	}
+	if obj.ID == "" {
+		return errors.New("metrics: the metric id should not be empty")
+	}
+
+	kind := ParseKind(obj.Kind)
+	if kind == KindUnknown {
+		return errors.New("metrics: the metric type is unknown")
+	}
+
+	switch kind {
+	case KindCounter:
+		var v int64
+		if obj.Delta != nil {
+			v = *obj.Delta
+		}
+		*m = Counter(obj.ID, v)
+	case KindGauge:
+		var v float64
+		if obj.Value != nil {
+			v = *obj.Value
+		}
+		*m = Gauge(obj.ID, v)
+	}
+
+	return nil
 }

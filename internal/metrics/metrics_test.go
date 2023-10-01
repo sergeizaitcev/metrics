@@ -64,7 +64,7 @@ func TestMetrics(t *testing.T) {
 
 				m := metrics.NewMetrics(storage)
 
-				err := m.Save(ctx, tc.metric)
+				_, err := m.Save(ctx, tc.metric)
 				if tc.wantError {
 					require.Error(t, err)
 				} else {

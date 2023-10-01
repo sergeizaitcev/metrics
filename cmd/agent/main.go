@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"path"
 	"syscall"
 	"time"
 
@@ -68,23 +69,26 @@ func sendMetric(ctx context.Context, m metrics.Metric) error {
 	u := url.URL{
 		Scheme: "http",
 		Host:   flagAddress,
+		Path:   "/update",
 	}
 
-	switch m.Kind() {
-	case metrics.KindCounter:
-		u.Path = path.Join("update", "counter", m.Name(), m.String())
-	case metrics.KindGauge:
-		u.Path = path.Join("update", "gauge", m.Name(), m.String())
-	default:
+	if m.Kind() == metrics.KindUnknown {
 		return fmt.Errorf("unknown metric kind: %s", m.Kind())
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), nil)
+	var buf bytes.Buffer
+
+	err := json.NewEncoder(&buf).Encode(&m)
 	if err != nil {
 		return err
 	}
 
-	req.Header.Add("Content-Type", "text/plain; charset=utf-8")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), &buf)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Add("Content-Type", "application/json")
 
 	res, err := http.DefaultClient.Do(req)
 	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
