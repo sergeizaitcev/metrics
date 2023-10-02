@@ -52,7 +52,7 @@ func TestHandlers_all(t *testing.T) {
 
 			require.Equal(t, tc.wantCode, rec.Code)
 			require.Equal(t, tc.wantBody, rec.Body.String())
-			require.Equal(t, "text/plain; charset=utf-8", rec.Header().Get("Content-Type"))
+			require.Equal(t, "text/html; charset=utf-8", rec.Header().Get("Content-Type"))
 		})
 	}
 }

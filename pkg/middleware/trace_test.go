@@ -1,4 +1,4 @@
-package main
+package middleware_test
 
 import (
 	"net/http"
@@ -7,6 +7,8 @@ import (
 
 	"github.com/julienschmidt/httprouter"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sergeizaitcev/metrics/pkg/middleware"
 )
 
 func TestTrace(t *testing.T) {
@@ -38,9 +40,9 @@ func TestTrace(t *testing.T) {
 			w.Write(tc.body)
 		}
 
-		paramsChan := make(chan params, 1)
-		paramsFunc := func(params *params) { paramsChan <- *params }
-		trace := use(handler, trace(paramsFunc))
+		paramsChan := make(chan middleware.Params, 1)
+		paramsFunc := func(params *middleware.Params) { paramsChan <- *params }
+		trace := middleware.Use(handler, middleware.Trace(paramsFunc))
 
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(tc.method, tc.path, nil)
@@ -48,10 +50,10 @@ func TestTrace(t *testing.T) {
 		trace(rec, req, httprouter.Params{})
 		params := <-paramsChan
 
-		require.Equal(t, tc.path, params.uri)
-		require.Equal(t, tc.method, params.method)
-		require.NotEmpty(t, params.duration)
-		require.Equal(t, tc.statusCode, params.statusCode)
-		require.Equal(t, tc.body, params.body)
+		require.Equal(t, tc.path, params.URI)
+		require.Equal(t, tc.method, params.Method)
+		require.NotEmpty(t, params.Duration)
+		require.Equal(t, tc.statusCode, params.StatusCode)
+		require.Equal(t, tc.body, params.Body)
 	}
 }

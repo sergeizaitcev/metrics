@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/flate"
 	"context"
 	"fmt"
 	"net"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
+	"github.com/sergeizaitcev/metrics/pkg/middleware"
 )
 
 func main() {
@@ -32,17 +34,21 @@ func run() error {
 	metrics := metrics.NewMetrics(storage)
 
 	logger := zerolog.New(os.Stdout)
-	paramsFunc := func(p *params) {
+	paramsFunc := func(p *middleware.Params) {
 		entry := logger.Info()
-		entry.Str("method", p.method)
-		entry.Str("uri", p.uri)
-		entry.Int("statusCode", p.statusCode)
-		entry.Dur("duration", p.duration)
-		entry.Int("size", len(p.body))
+		entry.Str("method", p.Method)
+		entry.Str("uri", p.URI)
+		entry.Int("statusCode", p.StatusCode)
+		entry.Dur("duration", p.Duration)
+		entry.Int("size", len(p.Body))
 		entry.Send()
 	}
 
-	router := newRouter(metrics, trace(paramsFunc))
+	router := newRouter(
+		metrics,
+		middleware.Gzip(flate.BestCompression, "application/json", "text/html"),
+		middleware.Trace(paramsFunc),
+	)
 
 	return listenAndServe(router)
 }

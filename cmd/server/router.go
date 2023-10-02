@@ -11,23 +11,24 @@ import (
 	"github.com/julienschmidt/httprouter"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
+	"github.com/sergeizaitcev/metrics/pkg/middleware"
 )
 
 type handlers struct {
 	metrics *metrics.Metrics
 }
 
-func newRouter(m *metrics.Metrics, middlewares ...middleware) http.Handler {
+func newRouter(m *metrics.Metrics, middlewares ...middleware.Middleware) http.Handler {
 	handlers := handlers{metrics: m}
 
 	router := httprouter.New()
-	router.GET("/", use(handlers.all, middlewares...))
+	router.GET("/", middleware.Use(handlers.all, middlewares...))
 
-	router.GET("/value/:metric/:name", use(handlers.get, middlewares...))
-	router.POST("/value", use(handlers.getV2, middlewares...))
+	router.GET("/value/:metric/:name", middleware.Use(handlers.get, middlewares...))
+	router.POST("/value", middleware.Use(handlers.getV2, middlewares...))
 
-	router.POST("/update/:metric/:name/:value", use(handlers.update, middlewares...))
-	router.POST("/update", use(handlers.updateV2, middlewares...))
+	router.POST("/update/:metric/:name/:value", middleware.Use(handlers.update, middlewares...))
+	router.POST("/update", middleware.Use(handlers.updateV2, middlewares...))
 
 	return router
 }
@@ -37,11 +38,11 @@ func (h *handlers) all(w http.ResponseWriter, r *http.Request, _ httprouter.Para
 
 	values, err := h.metrics.All(ctx)
 	if err != nil {
-		statusInternalServerError(w)
+		statusHTML(w, http.StatusInternalServerError)
 		return
 	}
 
-	statusOK(w)
+	statusHTML(w, http.StatusOK)
 
 	for _, value := range values {
 		fmt.Fprintf(w, "%s=%s\n", value.Name(), value.String())
@@ -197,6 +198,12 @@ func statusInternalServerError(w http.ResponseWriter) {
 
 func statusText(w http.ResponseWriter, code int) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(code)
+}
+
+func statusHTML(w http.ResponseWriter, code int) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(code)
 }

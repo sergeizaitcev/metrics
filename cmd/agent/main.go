@@ -88,6 +88,8 @@ func sendMetric(ctx context.Context, m metrics.Metric) error {
 		return err
 	}
 
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Accept-Encoding", "gzip")
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := http.DefaultClient.Do(req)
