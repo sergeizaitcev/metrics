@@ -17,10 +17,20 @@ type Storage struct {
 }
 
 // NewStorage возвращает новый экземпляр локального хранилища метрик.
-func NewStorage() *Storage {
-	return &Storage{
-		metrics: make(map[string]metrics.Metric),
+func NewStorage(values ...metrics.Metric) *Storage {
+	s := &Storage{
+		metrics: make(map[string]metrics.Metric, len(values)),
 	}
+	ctx := context.Background()
+	for _, value := range values {
+		switch value.Kind() {
+		case metrics.KindCounter:
+			s.Add(ctx, value)
+		case metrics.KindGauge:
+			s.Set(ctx, value)
+		}
+	}
+	return s
 }
 
 // Set устанавливает новое значение метрики и возвращает предыдущее.

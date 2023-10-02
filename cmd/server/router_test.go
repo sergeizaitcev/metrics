@@ -43,7 +43,7 @@ func TestHandlers_all(t *testing.T) {
 			storage := mocks.NewMockStorage()
 			storage.On("GetAll", mock.Anything).Return(tc.mockMetrics, tc.mockError)
 
-			router := newRouter(metrics.NewMetrics(storage))
+			router := newRouter(metrics.NewMetrics(storage, nil))
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -111,16 +111,22 @@ func TestHandlers_update(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			switch tc.metric.Kind() {
-			case metrics.KindCounter:
-				storage.On("Add", mock.Anything, tc.metric).
-					Return(metrics.Metric{}, tc.mockError)
-			case metrics.KindGauge:
-				storage.On("Set", mock.Anything, tc.metric).
-					Return(metrics.Metric{}, tc.mockError)
+			fileStorage := mocks.NewMockFileStorage()
+
+			if tc.metric.Kind() != metrics.KindUnknown {
+				switch tc.metric.Kind() {
+				case metrics.KindCounter:
+					storage.On("Add", mock.Anything, tc.metric).
+						Return(metrics.Metric{}, tc.mockError)
+
+				case metrics.KindGauge:
+					storage.On("Set", mock.Anything, tc.metric).
+						Return(metrics.Metric{}, tc.mockError)
+				}
+				fileStorage.On("Append", tc.metric).Return((error)(nil))
 			}
 
-			router := newRouter(metrics.NewMetrics(storage))
+			router := newRouter(metrics.NewMetrics(storage, fileStorage))
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, tc.path, nil)
@@ -192,16 +198,21 @@ func TestHandlers_updateV2(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			switch tc.metric.Kind() {
-			case metrics.KindCounter:
-				storage.On("Add", mock.Anything, tc.metric).
-					Return(tc.mockMetric, tc.mockError)
-			case metrics.KindGauge:
-				storage.On("Set", mock.Anything, tc.metric).
-					Return(tc.mockMetric, tc.mockError)
+			fileStorage := mocks.NewMockFileStorage()
+
+			if tc.metric.Kind() != metrics.KindUnknown {
+				switch tc.metric.Kind() {
+				case metrics.KindCounter:
+					storage.On("Add", mock.Anything, tc.metric).
+						Return(tc.mockMetric, tc.mockError)
+				case metrics.KindGauge:
+					storage.On("Set", mock.Anything, tc.metric).
+						Return(tc.mockMetric, tc.mockError)
+				}
+				fileStorage.On("Append", tc.metric).Return((error)(nil))
 			}
 
-			router := newRouter(metrics.NewMetrics(storage))
+			router := newRouter(metrics.NewMetrics(storage, fileStorage))
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(tc.body))
@@ -290,7 +301,7 @@ func TestHandlers_get(t *testing.T) {
 				storage.On("Get", mock.Anything, tc.metric).Return(tc.mockMetric, tc.mockError)
 			}
 
-			router := newRouter(metrics.NewMetrics(storage))
+			router := newRouter(metrics.NewMetrics(storage, nil))
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
@@ -395,7 +406,7 @@ func TestHandlers_getV2(t *testing.T) {
 				storage.On("Get", mock.Anything, tc.metric).Return(tc.mockMetric, tc.mockError)
 			}
 
-			router := newRouter(metrics.NewMetrics(storage))
+			router := newRouter(metrics.NewMetrics(storage, nil))
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/value", strings.NewReader(tc.body))

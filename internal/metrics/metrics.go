@@ -24,14 +24,20 @@ type Storager interface {
 	GetAll(context.Context) ([]Metric, error)
 }
 
+// FileStorager представляет интерфейс файлового хранилища метрик.
+type FileStorager interface {
+	Append(Metric) error
+}
+
 // Metrics определяет сервис для работы с метриками.
 type Metrics struct {
-	storage Storager
+	storage     Storager
+	fileStorage FileStorager
 }
 
 // NewService возвращает новый экземпляр metrics.
-func NewMetrics(s Storager) *Metrics {
-	return &Metrics{storage: s}
+func NewMetrics(s Storager, f FileStorager) *Metrics {
+	return &Metrics{storage: s, fileStorage: f}
 }
 
 // Save сохраняет метрику.
@@ -55,6 +61,8 @@ func (m *Metrics) Save(ctx context.Context, metric Metric) (Metric, error) {
 	default:
 		return Metric{}, fmt.Errorf("metrics: unsupported kind: %s", metric.Kind())
 	}
+
+	m.fileStorage.Append(metric)
 
 	return actual, nil
 }

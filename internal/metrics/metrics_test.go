@@ -62,7 +62,12 @@ func TestMetrics(t *testing.T) {
 						Return(metrics.Metric{}, tc.mockError)
 				}
 
-				m := metrics.NewMetrics(storage)
+				fileStorage := mocks.NewMockFileStorage()
+				if tc.method != "" {
+					fileStorage.On("Append", tc.metric).Return(nil)
+				}
+
+				m := metrics.NewMetrics(storage, fileStorage)
 
 				_, err := m.Save(ctx, tc.metric)
 				if tc.wantError {
@@ -105,7 +110,7 @@ func TestMetrics(t *testing.T) {
 				storage := mocks.NewMockStorage()
 				storage.On("Get", ctx, tc.metric).Return(tc.mockMetric, tc.mockError)
 
-				m := metrics.NewMetrics(storage)
+				m := metrics.NewMetrics(storage, nil)
 
 				got, err := m.Lookup(ctx, tc.metric)
 				if tc.wantError {
@@ -144,7 +149,7 @@ func TestMetrics(t *testing.T) {
 				storage := mocks.NewMockStorage()
 				storage.On("GetAll", ctx).Return(tc.mockMetrics, tc.mockError)
 
-				m := metrics.NewMetrics(storage)
+				m := metrics.NewMetrics(storage, nil)
 
 				got, err := m.All(ctx)
 				if tc.wantError {

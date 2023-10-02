@@ -34,10 +34,10 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	pollTicker := time.NewTicker(time.Duration(flagPollInterval))
+	pollTicker := time.NewTicker(flagPollInterval.Duration())
 	defer pollTicker.Stop()
 
-	reportTicker := time.NewTicker(time.Duration(flagReportInterval))
+	reportTicker := time.NewTicker(flagReportInterval.Duration())
 	defer reportTicker.Stop()
 
 	for {

@@ -6,40 +6,20 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strconv"
-	"time"
+
+	"github.com/sergeizaitcev/metrics/internal/flagutil"
 )
 
 var (
 	flagAddress        string
-	flagReportInterval = duration(10 * time.Second)
-	flagPollInterval   = duration(2 * time.Second)
+	flagReportInterval = flagutil.Second(10)
+	flagPollInterval   = flagutil.Second(2)
 )
 
 func init() {
 	flag.StringVar(&flagAddress, "a", "localhost:8080", "server address")
 	flag.Var(&flagReportInterval, "r", "report interval in seconds")
 	flag.Var(&flagPollInterval, "p", "poll interval in seconds")
-}
-
-var _ flag.Value = (*duration)(nil)
-
-type duration time.Duration
-
-func (d duration) String() string {
-	return time.Duration(d).String()
-}
-
-func (d *duration) Set(value string) error {
-	v, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return err
-	}
-	if v <= 0 {
-		return errors.New("value must be is greater than zero")
-	}
-	*d = duration(time.Duration(v) * time.Second)
-	return nil
 }
 
 func parseFlags() (err error) {
@@ -71,6 +51,9 @@ func parseFlags() (err error) {
 			return err
 		}
 	}
+	if flagPollInterval <= 0 {
+		return errors.New("poll internval must be is greater than zero")
+	}
 
 	report := os.Getenv("REPORT_INTERVAL")
 	if report != "" {
@@ -78,6 +61,9 @@ func parseFlags() (err error) {
 		if err != nil {
 			return err
 		}
+	}
+	if flagReportInterval <= 0 {
+		return errors.New("report internval must be is greater than zero")
 	}
 
 	return nil

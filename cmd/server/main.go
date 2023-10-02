@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
+	"github.com/sergeizaitcev/metrics/internal/storage/file"
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 )
@@ -26,12 +28,28 @@ func main() {
 }
 
 func run() error {
+	baseCtx := context.Background()
+
 	if err := parseFlags(); err != nil {
 		return err
 	}
 
-	storage := local.NewStorage()
-	metrics := metrics.NewMetrics(storage)
+	fileStorage, err := newFileStorage()
+	if err != nil {
+		return err
+	}
+	defer fileStorage.Close()
+
+	var values []metrics.Metric
+	if flagRestore {
+		values, err = fileStorage.ReadAll()
+		if err != nil {
+			return err
+		}
+	}
+
+	storage := local.NewStorage(values...)
+	metrics := metrics.NewMetrics(storage, fileStorage)
 
 	logger := zerolog.New(os.Stdout)
 	paramsFunc := func(p *middleware.Params) {
@@ -50,15 +68,42 @@ func run() error {
 		middleware.Trace(paramsFunc),
 	)
 
-	return listenAndServe(router)
-}
-
-func listenAndServe(handler http.Handler) error {
-	baseCtx := context.Background()
-
 	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	errg, errgCtx := errgroup.WithContext(ctx)
+	errg.Go(func() error { return listenAndServe(errgCtx, router) })
+
+	if flagStoreInterval > 0 {
+		errg.Go(func() error {
+			ticker := time.NewTicker(flagStoreInterval.Duration())
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-errgCtx.Done():
+					return nil
+				case <-ticker.C:
+					err := fileStorage.Flush()
+					if err != nil {
+						return err
+					}
+				}
+			}
+		})
+	}
+
+	return errg.Wait()
+}
+
+func newFileStorage() (*file.Storage, error) {
+	if flagStoreInterval == 0 {
+		return file.OpenSync(flagFileStoragePath)
+	}
+	return file.Open(flagFileStoragePath)
+}
+
+func listenAndServe(ctx context.Context, handler http.Handler) error {
 	server := http.Server{
 		Addr:         flagAddress,
 		Handler:      handler,
@@ -77,7 +122,7 @@ func listenAndServe(handler http.Handler) error {
 		return err
 	}
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(baseCtx, 3*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer shutdownCancel()
 
 	err := server.Shutdown(shutdownCtx)
