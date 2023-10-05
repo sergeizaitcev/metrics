@@ -3,7 +3,6 @@ package metrics
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -19,114 +18,55 @@ const (
 	KindGauge
 )
 
-var kindNames = []Kind{
-	KindUnknown,
-	KindCounter,
-	KindGauge,
-}
-
-var kindValues = []string{
-	"Unknown",
-	"Counter",
-	"Gauge",
+var kindValues = map[Kind]string{
+	KindUnknown: "unknown",
+	KindCounter: "counter",
+	KindGauge:   "gauge",
 }
 
 func (k Kind) String() string {
-	if int(k) < len(kindValues) {
-		return kindValues[k]
+	v, ok := kindValues[k]
+	if !ok {
+		return kindValues[KindUnknown]
 	}
-	return kindValues[0]
+	return v
 }
 
-// ParseKind парсит строку с типом метрики.
+// ParseKind парсит строку и возвращает тип метрики.
 func ParseKind(s string) Kind {
 	if s == "" {
 		return KindUnknown
 	}
 	s0 := strings.ToLower(s)
-	for i := range kindValues {
-		v := strings.ToLower(kindValues[i])
+	for k, v := range kindValues {
 		if v == s0 {
-			return kindNames[i]
+			return k
 		}
 	}
 	return KindUnknown
 }
 
-// kindValue определяет тип значения метрики.
-type kindValue uint8
-
-const (
-	kindValueUnknown kindValue = iota
-
-	kindValueInt64
-	kindValueFloat64
-)
-
-var kindValueValues = []string{
-	"Unknown",
-	"Int64",
-	"Float64",
-}
-
-func (k kindValue) String() string {
-	if int(k) < len(kindValueValues) {
-		return kindValueValues[k]
-	}
-	return kindValueValues[0]
-}
-
 // value определяет значение метрики.
-type value struct {
-	kind kindValue
-	num  uint64
-}
-
-// Equal возвращает true, если значение метрики равно x.
-func (v value) Equal(x value) bool {
-	return v.kind == x.kind && v.num == x.num
-}
+type value uint64
 
 // counterValue возвращает значение метрики типа счётчик.
 func counterValue(v int64) value {
-	return value{kind: kindValueInt64, num: uint64(v)}
+	return value(v)
 }
 
 // gaugeValue возвращает значение метрики типа датчик.
 func gaugeValue(v float64) value {
-	return value{kind: kindValueFloat64, num: math.Float64bits(v)}
-}
-
-// String возвращает строковое представление значения метрики.
-func (v value) String() string {
-	switch v.kind {
-	case kindValueInt64:
-		return strconv.FormatInt(int64(v.num), 10)
-	case kindValueFloat64:
-		return strconv.FormatFloat(v.float(), 'f', -1, 64)
-	default:
-		return ""
-	}
+	return value(math.Float64bits(v))
 }
 
 // Int64 возвращает значение метрики как int64.
 func (v value) Int64() int64 {
-	if got, want := v.kind, kindValueInt64; got != want {
-		panic(fmt.Sprintf("metrics: expected kind of value %s, got %s", want, got))
-	}
-	return int64(v.num)
+	return int64(v)
 }
 
 // Float64 возвращает значение метрики как float64.
 func (v value) Float64() float64 {
-	if got, want := v.kind, kindValueFloat64; got != want {
-		panic(fmt.Sprintf("metrics: expected kind of value %s, got %s", want, got))
-	}
-	return v.float()
-}
-
-func (v value) float() float64 {
-	return math.Float64frombits(v.num)
+	return math.Float64frombits(uint64(v))
 }
 
 var (
@@ -171,7 +111,13 @@ func (m *Metric) Name() string {
 
 // String возвращает строковое представление значения метрики.
 func (m *Metric) String() string {
-	return m.value.String()
+	switch m.kind {
+	case KindCounter:
+		return strconv.FormatInt(m.value.Int64(), 10)
+	case KindGauge:
+		return strconv.FormatFloat(m.value.Float64(), 'f', -1, 64)
+	}
+	return "<Unknown>"
 }
 
 // Int64 возвращает значение метрики как int64. Паникует, если тип метрики
@@ -188,7 +134,7 @@ func (m *Metric) Float64() float64 {
 
 // Equal возвращает true, если метрика равна x.
 func (m *Metric) Equal(x Metric) bool {
-	return m.kind == x.kind && m.name == x.name && m.value.Equal(x.value)
+	return m.kind == x.kind && m.name == x.name && m.value == x.value
 }
 
 // IsEmpty возвращает true, если метрика пуста.
@@ -209,7 +155,7 @@ func (m *Metric) MarshalJSON() ([]byte, error) {
 	}
 
 	obj := metric{
-		Kind: strings.ToLower(m.Kind().String()),
+		Kind: m.Kind().String(),
 		ID:   m.Name(),
 	}
 
@@ -245,12 +191,7 @@ func (m *Metric) UnmarshalJSON(data []byte) error {
 		return errors.New("metrics: the metric id should not be empty")
 	}
 
-	kind := ParseKind(obj.Kind)
-	if kind == KindUnknown {
-		return errors.New("metrics: the metric type is unknown")
-	}
-
-	switch kind {
+	switch ParseKind(obj.Kind) {
 	case KindCounter:
 		var v int64
 		if obj.Delta != nil {
@@ -263,6 +204,8 @@ func (m *Metric) UnmarshalJSON(data []byte) error {
 			v = *obj.Value
 		}
 		*m = Gauge(obj.ID, v)
+	case KindUnknown:
+		return errors.New("metrics: the metric type is unknown")
 	}
 
 	return nil
