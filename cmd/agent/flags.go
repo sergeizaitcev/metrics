@@ -1,58 +1,71 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
-	"time"
 )
 
-type flags struct {
-	addr           string
-	reportInterval time.Duration
-	pollInterval   time.Duration
+var (
+	flagAddress        string
+	flagReportInterval int64
+	flagPollInterval   int64
+)
+
+func init() {
+	flag.StringVar(&flagAddress, "a", "localhost:8080", "server address")
+	flag.Int64Var(&flagReportInterval, "r", 10, "report interval in seconds")
+	flag.Int64Var(&flagPollInterval, "p", 2, "poll interval in seconds")
 }
 
-func parseFlags() (*flags, error) {
-	var fs flags
-	var reportInterval, pollInterval int64
+func parseFlags() (err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			err = fmt.Errorf("%s", e)
+		}
+	}()
 
-	flag.StringVar(&fs.addr, "a", "localhost:8080", "server address")
-	flag.Int64Var(&reportInterval, "r", 10, "report interval in seconds")
-	flag.Int64Var(&pollInterval, "p", 2, "poll interval in seconds")
-
-	flag.Parse()
+	err = flag.CommandLine.Parse(os.Args[1:])
+	if err != nil {
+		return err
+	}
 
 	addr := os.Getenv("ADDRESS")
 	if addr != "" {
-		if _, _, err := net.SplitHostPort(addr); err != nil {
-			return nil, fmt.Errorf("main: ADDRESS is invalid: %s", err)
-		}
-		fs.addr = addr
+		flagAddress = addr
+	}
+
+	_, _, err = net.SplitHostPort(flagAddress)
+	if err != nil {
+		return err
 	}
 
 	poll := os.Getenv("POLL_INTERVAL")
 	if poll != "" {
 		v, err := strconv.ParseInt(poll, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("main: POLL_INTERVAL is invalid: %s", err)
+			return err
 		}
-		pollInterval = v
+		flagPollInterval = v
+	}
+	if flagPollInterval <= 0 {
+		return errors.New("poll internval must be is greater than zero")
 	}
 
 	report := os.Getenv("REPORT_INTERVAL")
 	if report != "" {
 		v, err := strconv.ParseInt(report, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("main: REPORT_INTERVAL is invalid: %s", err)
+			return err
 		}
-		reportInterval = v
+		flagReportInterval = v
+	}
+	if flagReportInterval <= 0 {
+		return errors.New("report internval must be is greater than zero")
 	}
 
-	fs.reportInterval = time.Duration(reportInterval) * time.Second
-	fs.pollInterval = time.Duration(pollInterval) * time.Second
-
-	return &fs, nil
+	return nil
 }

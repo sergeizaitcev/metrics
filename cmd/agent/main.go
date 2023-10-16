@@ -1,12 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"path"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
@@ -20,21 +25,27 @@ func main() {
 }
 
 func run() error {
-	fs, err := parseFlags()
-	if err != nil {
+	if err := parseFlags(); err != nil {
 		return err
 	}
 
-	pollTicker := time.NewTicker(fs.pollInterval)
+	baseCtx := context.Background()
+
+	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	pollTicker := time.NewTicker(time.Duration(flagPollInterval) * time.Second)
 	defer pollTicker.Stop()
 
-	reportTicker := time.NewTicker(fs.reportInterval)
+	reportTicker := time.NewTicker(time.Duration(flagReportInterval) * time.Second)
 	defer reportTicker.Stop()
 
 	for {
 		var report bool
 
 		select {
+		case <-ctx.Done():
+			return nil
 		case <-pollTicker.C:
 		case <-reportTicker.C:
 			report = true
@@ -46,7 +57,7 @@ func run() error {
 		}
 
 		for _, metric := range snapshot {
-			if err := reportMetric(fs.addr, metric); err != nil {
+			if err := sendMetric(ctx, metric); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				break
 			}
@@ -54,22 +65,37 @@ func run() error {
 	}
 }
 
-func reportMetric(addr string, m metrics.Metric) error {
-	u := &url.URL{
+func sendMetric(ctx context.Context, m metrics.Metric) error {
+	u := url.URL{
 		Scheme: "http",
-		Host:   addr,
+		Host:   flagAddress,
+		Path:   "/update",
 	}
 
-	switch m.Kind() {
-	case metrics.KindCounter:
-		u.Path = path.Join("update", "counter", m.Name(), m.String())
-	case metrics.KindGauge:
-		u.Path = path.Join("update", "gauge", m.Name(), m.String())
-	default:
-		return fmt.Errorf("unknown metric kind: %s", m.Kind())
+	if m.IsEmpty() {
+		return errors.New("metric is empty")
 	}
 
-	res, err := http.Post(u.String(), "text/plain; charset=utf-8", nil)
+	var buf bytes.Buffer
+
+	err := json.NewEncoder(&buf).Encode(&m)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), &buf)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Accept-Encoding", "gzip")
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := http.DefaultClient.Do(req)
+	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

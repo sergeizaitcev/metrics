@@ -1,49 +1,36 @@
+BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD)
 SERVER_PORT := $(shell random unused-port)
-ADDRESS := localhost:$(SERVER_PORT)
 TEMP_FILE := $(shell random tempfile)
+DATABASE_DSN := postgres://postgres:postgres@localhost:5432/praktikum?sslmode=disable
+ADDRESS := localhost:$(SERVER_PORT)
 
-.PHONY: build
-build:
-	go build -o ./cmd/agent/agent ./cmd/agent
-	go build -o ./cmd/server/server ./cmd/server
+.DEFAULT_GOAL := all
 
-.PHONY: static
-static:
-	go vet -vettool=$(shell which statictest) ./...
+.PHONY: all
+all: test lint autotest
+
+.PHONY: lint
+lint:
+	@go vet -vettool=$(shell which statictest) ./...
 
 .PHONY: test
 test:
-	go test -short -race -timeout=10s -count=1 -cover ./...
+	@go test -short -race -timeout=30s -count=1 -cover ./...
 
-.PHONY: iter1
-iter1: build
-	metricstest -test.v -test.run=^TestIteration1$$ \
-		-binary-path=cmd/server/server
+.PHONY: build
+build:
+	@go build -o ./cmd/agent/agent ./cmd/agent
+	@go build -o ./cmd/server/server ./cmd/server
 
-.PHONY: iter2
-iter2: build
-	metricstest -test.v -test.run=^TestIteration2[AB]*$$ \
-		-source-path=. -agent-binary-path=cmd/agent/agent
+.PHONY: autotest
+autotest: build $(BRANCH_NAME)
 
-.PHONY: iter3
-iter3: build
-	metricstest -test.v -test.run=^TestIteration3[AB]*$$ \
-		-source-path=. \
+iter%:
+	@metricstest -test.v -test.run=^TestIteration$*[AB]?$$ \
 		-agent-binary-path=cmd/agent/agent \
-		-binary-path=cmd/server/server
-
-.PHONY: iter4
-iter4: build
-	metricstest -test.v -test.run=^TestIteration4$$ \
-		-source-path=. \
+		-binary-path=cmd/server/server \
 		-server-port=$(SERVER_PORT) \
-		-agent-binary-path=cmd/agent/agent \
-		-binary-path=cmd/server/server
-
-.PHONY: iter5
-iter5: build
-	metricstest -test.v -test.run=^TestIteration5$$ \
-		-source-path=. \
-		-server-port=$(SERVER_PORT) \
-		-agent-binary-path=cmd/agent/agent \
-		-binary-path=cmd/server/server
+		-database-dsn=$(DATABASE_DSN) \
+		-file-storage-path=$(TEMP_FILE) \
+		-key=$(TEMP_FILE) \
+		-source-path=.
