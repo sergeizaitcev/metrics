@@ -1,7 +1,7 @@
 BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD)
 SERVER_PORT := $(shell random unused-port)
 TEMP_FILE := $(shell random tempfile)
-DATABASE_DSN := postgres://postgres:postgres@localhost:5432/praktikum?sslmode=disable
+DATABASE_DSN := postgres://postgres:postgres@localhost:5432/practicum?sslmode=disable
 ADDRESS := localhost:$(SERVER_PORT)
 
 .DEFAULT_GOAL := all

@@ -150,6 +150,16 @@ func (s *Storage) write(op operation, value metrics.Metric) error {
 	return nil
 }
 
+// Ping возвращает ошибку, если не удалось выполнить пинг хранилища.
+func (s *Storage) Ping(ctx context.Context) error {
+	err := s.lock(ctx)
+	if err != nil {
+		return err
+	}
+	s.unlock()
+	return nil
+}
+
 // Close закрывает локальное хранилище метрик.
 func (s *Storage) Close() error {
 	err := s.lock(context.Background())

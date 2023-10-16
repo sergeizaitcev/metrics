@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/sergeizaitcev/metrics/internal/handlers"
-	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 )
@@ -28,19 +28,26 @@ func main() {
 }
 
 func run() error {
-	baseCtx := context.Background()
-
 	if err := parseFlags(); err != nil {
 		return err
 	}
+
+	baseCtx := context.Background()
+
+	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	conn, err := pgx.Connect(ctx, flagDatabaseDSN)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(baseCtx)
 
 	storage, err := newStorage()
 	if err != nil {
 		return err
 	}
 	defer storage.Close()
-
-	metrics := metrics.NewMetrics(storage)
 
 	logger := zerolog.New(os.Stdout)
 	paramsFunc := func(p *middleware.Params) {
@@ -54,13 +61,10 @@ func run() error {
 	}
 
 	handler := handlers.New(
-		metrics,
+		storage,
 		middleware.Gzip(flate.BestCompression, "application/json", "text/html"),
 		middleware.Trace(paramsFunc),
 	)
-
-	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	errg, errgCtx := errgroup.WithContext(ctx)
 	errg.Go(func() error {
@@ -77,7 +81,8 @@ func run() error {
 }
 
 type storager interface {
-	metrics.Storager
+	handlers.Storager
+
 	Flush() error
 	Close() error
 }

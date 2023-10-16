@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,10 +16,20 @@ import (
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 )
 
+// Storager ...
+type Storager interface {
+	metrics.Storager
+
+	Ping(context.Context) error
+}
+
 // New возвращает новый обработчик HTTP-запросов, используйющий сервис для
 // работы с метриками.
-func New(m *metrics.Metrics, middlewares ...middleware.Middleware) http.Handler {
+func New(storage Storager, middlewares ...middleware.Middleware) http.Handler {
+	m := metrics.NewMetrics(storage)
+
 	router := httprouter.New()
+	router.GET("/ping", ping(storage))
 
 	for _, h := range []struct {
 		method string
@@ -56,6 +67,15 @@ func New(m *metrics.Metrics, middlewares ...middleware.Middleware) http.Handler 
 	}
 
 	return router
+}
+
+func ping(s Storager) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+		ctx := r.Context()
+		if err := s.Ping(ctx); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}
 }
 
 func all(m *metrics.Metrics) httprouter.Handle {

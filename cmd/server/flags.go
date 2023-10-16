@@ -14,6 +14,7 @@ var (
 	flagStoreInterval   int64
 	flagFileStoragePath string
 	flagRestore         bool
+	flagDatabaseDSN     string
 )
 
 func init() {
@@ -21,6 +22,7 @@ func init() {
 	flag.Int64Var(&flagStoreInterval, "i", 300, "store interval in seconds")
 	flag.StringVar(&flagFileStoragePath, "f", "/tmp/metrics-db.json", "file path storage")
 	flag.BoolVar(&flagRestore, "r", true, "restore")
+	flag.StringVar(&flagDatabaseDSN, "d", "", "database dsn")
 }
 
 func parseFlags() (err error) {
@@ -55,6 +57,11 @@ func parseFlags() (err error) {
 	}
 	if flagStoreInterval < 0 {
 		return errors.New("store internval must be is greater or equal than zero")
+	}
+
+	databaseDSN := os.Getenv("DATABASE_DSN")
+	if databaseDSN != "" {
+		flagDatabaseDSN = databaseDSN
 	}
 
 	fileStoragePath := os.Getenv("FILE_STORAGE_PATH")
