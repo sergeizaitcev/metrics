@@ -2,24 +2,24 @@ package metrics
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
+	"unsafe"
 )
-
-// ErrNotFound возвращается, когда не найдена метрика.
-var ErrNotFound = errors.New("metrics: not found")
 
 // Storager представляет интерфейс хранилища метрик.
 type Storager interface {
-	// Set устанавливает новое значение метрики и возвращает предыдущее.
-	Set(context.Context, Metric) (Metric, error)
-
 	// Add увеличивает значение метрики и возвращает итоговый результат.
 	Add(context.Context, Metric) (Metric, error)
+
+	// Set устанавливает новое значение метрики и возвращает предыдущее.
+	Set(context.Context, Metric) (Metric, error)
 
 	// Get возвращает метрику.
 	Get(context.Context, string) (Metric, error)
@@ -28,20 +28,14 @@ type Storager interface {
 	GetAll(context.Context) ([]Metric, error)
 }
 
-// FileStorager представляет интерфейс файлового хранилища метрик.
-type FileStorager interface {
-	Append(Metric) error
-}
-
 // Metrics определяет сервис для работы с метриками.
 type Metrics struct {
-	storage     Storager
-	fileStorage FileStorager
+	storage Storager
 }
 
 // NewService возвращает новый экземпляр metrics.
-func NewMetrics(s Storager, f FileStorager) *Metrics {
-	return &Metrics{storage: s, fileStorage: f}
+func NewMetrics(s Storager) *Metrics {
+	return &Metrics{storage: s}
 }
 
 // Save сохраняет метрику.
@@ -66,8 +60,6 @@ func (m *Metrics) Save(ctx context.Context, metric Metric) (Metric, error) {
 		return Metric{}, fmt.Errorf("metrics: unsupported kind: %s", metric.Kind())
 	}
 
-	m.fileStorage.Append(metric)
-
 	return actual, nil
 }
 
@@ -76,9 +68,6 @@ func (m *Metrics) Lookup(ctx context.Context, name string) (Metric, error) {
 	metric, err := m.storage.Get(ctx, name)
 	if err != nil {
 		return Metric{}, fmt.Errorf("metrics: lookup for a metric by name: %w", err)
-	}
-	if metric.Kind() == KindUnknown {
-		return Metric{}, ErrNotFound
 	}
 	return metric, nil
 }
@@ -193,25 +182,33 @@ func (m *Metric) Name() string {
 	return m.name
 }
 
-// String возвращает строковое представление значения метрики.
+// String возвращает строковое представление метрики.
 func (m *Metric) String() string {
+	return fmt.Sprintf(
+		"metric{kind=%s name=%s value=%s}",
+		m.kind.String(),
+		m.name,
+		m.Str(),
+	)
+}
+
+// Str возвращает значение метрики как string.
+func (m *Metric) Str() string {
 	switch m.kind {
 	case KindCounter:
 		return strconv.FormatInt(m.value.Int64(), 10)
 	case KindGauge:
 		return strconv.FormatFloat(m.value.Float64(), 'f', -1, 64)
 	}
-	return "<Unknown>"
+	return "<unknown>"
 }
 
-// Int64 возвращает значение метрики как int64. Паникует, если тип метрики
-// не является KindCounter.
+// Int64 возвращает значение метрики как int64.
 func (m *Metric) Int64() int64 {
 	return m.value.Int64()
 }
 
-// Float64 возвращает значение метрики как float64. Паникует, если тип метрики
-// не является KindGauge.
+// Float64 возвращает значение метрики как float64.
 func (m *Metric) Float64() float64 {
 	return m.value.Float64()
 }
@@ -234,16 +231,16 @@ type metric struct {
 }
 
 func (m *Metric) MarshalJSON() ([]byte, error) {
-	if m.Kind() == KindUnknown {
+	if m.kind == KindUnknown {
 		return []byte("{}"), nil
 	}
 
 	obj := metric{
-		Kind: m.Kind().String(),
-		ID:   m.Name(),
+		Kind: m.kind.String(),
+		ID:   m.name,
 	}
 
-	switch m.Kind() {
+	switch m.kind {
 	case KindCounter:
 		v := m.Int64()
 		obj.Delta = &v
@@ -290,6 +287,62 @@ func (m *Metric) UnmarshalJSON(data []byte) error {
 		*m = Gauge(obj.ID, v)
 	case KindUnknown:
 		return errors.New("metrics: the metric type is unknown")
+	}
+
+	return nil
+}
+
+func (m *Metric) MarshalBinary() ([]byte, error) {
+	enc := base64.RawStdEncoding
+	encodedLen := enc.EncodedLen(len(m.name))
+
+	var buf [binary.MaxVarintLen64]byte
+	n := binary.PutUvarint(buf[:], uint64(encodedLen))
+
+	data := make([]byte, 9+n+encodedLen)
+
+	data[0] = byte(m.kind)
+	binary.BigEndian.PutUint64(data[1:9], uint64(m.value))
+
+	copy(data[9:], buf[:n])
+
+	src := unsafe.Slice(unsafe.StringData(m.name), len(m.name))
+	enc.Encode(data[9+n:], src)
+
+	return data, nil
+}
+
+func (m *Metric) UnmarshalBinary(data []byte) error {
+	if len(data) < 10 {
+		return errors.New("metrics: data too small")
+	}
+
+	kind := Kind(data[0])
+	data = data[1:]
+
+	value := value(binary.BigEndian.Uint64(data[:8]))
+	data = data[8:]
+
+	size, n := binary.Uvarint(data)
+	if n <= 0 || uint64(len(data)-n) < size {
+		return errors.New("metrics: data is corrupted")
+	}
+
+	data = data[n:]
+	data = data[:size]
+
+	enc := base64.RawStdEncoding
+	name := make([]byte, enc.DecodedLen(int(size)))
+
+	_, err := enc.Decode(name, data)
+	if err != nil {
+		return fmt.Errorf("metrics: base64 decoding: %w", err)
+	}
+
+	*m = Metric{
+		kind:  kind,
+		name:  unsafe.String(unsafe.SliceData(name), len(name)),
+		value: value,
 	}
 
 	return nil

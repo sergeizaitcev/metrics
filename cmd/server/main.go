@@ -14,8 +14,8 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/sergeizaitcev/metrics/internal/handlers"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
-	"github.com/sergeizaitcev/metrics/internal/storage/file"
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 )
@@ -34,22 +34,13 @@ func run() error {
 		return err
 	}
 
-	fileStorage, err := newFileStorage()
+	storage, err := newStorage()
 	if err != nil {
 		return err
 	}
-	defer fileStorage.Close()
+	defer storage.Close()
 
-	var values []metrics.Metric
-	if flagRestore {
-		values, err = fileStorage.ReadAll()
-		if err != nil {
-			return err
-		}
-	}
-
-	storage := local.NewStorage(values...)
-	metrics := metrics.NewMetrics(storage, fileStorage)
+	metrics := metrics.NewMetrics(storage)
 
 	logger := zerolog.New(os.Stdout)
 	paramsFunc := func(p *middleware.Params) {
@@ -62,7 +53,7 @@ func run() error {
 		entry.Send()
 	}
 
-	router := newRouter(
+	handler := handlers.New(
 		metrics,
 		middleware.Gzip(flate.BestCompression, "application/json", "text/html"),
 		middleware.Trace(paramsFunc),
@@ -72,35 +63,53 @@ func run() error {
 	defer cancel()
 
 	errg, errgCtx := errgroup.WithContext(ctx)
-	errg.Go(func() error { return listenAndServe(errgCtx, router) })
+	errg.Go(func() error {
+		return listenAndServe(errgCtx, handler)
+	})
 
 	if flagStoreInterval > 0 {
 		errg.Go(func() error {
-			ticker := time.NewTicker(flagStoreInterval.Duration())
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-errgCtx.Done():
-					return nil
-				case <-ticker.C:
-					err := fileStorage.Flush()
-					if err != nil {
-						return err
-					}
-				}
-			}
+			return performEachTick(errgCtx, storage.Flush)
 		})
 	}
 
 	return errg.Wait()
 }
 
-func newFileStorage() (*file.Storage, error) {
-	if flagStoreInterval == 0 {
-		return file.OpenSync(flagFileStoragePath)
+type storager interface {
+	metrics.Storager
+	Flush() error
+	Close() error
+}
+
+func newStorage() (storager, error) {
+	opts := &local.StorageOpts{
+		Synced: flagStoreInterval == 0,
 	}
-	return file.Open(flagFileStoragePath)
+
+	if flagRestore {
+		return local.Open(flagFileStoragePath, opts)
+	}
+
+	return local.New(flagFileStoragePath, opts)
+}
+
+func performEachTick(ctx context.Context, f func() error) error {
+	d := time.Duration(flagStoreInterval) * time.Second
+
+	ticker := time.NewTicker(d)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := f(); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 func listenAndServe(ctx context.Context, handler http.Handler) error {

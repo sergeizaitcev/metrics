@@ -10,7 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
-	"github.com/sergeizaitcev/metrics/internal/metrics/mocks"
+	"github.com/sergeizaitcev/metrics/internal/storage"
+	"github.com/sergeizaitcev/metrics/internal/storage/mocks"
 )
 
 func TestMetrics(t *testing.T) {
@@ -63,12 +64,7 @@ func TestMetrics(t *testing.T) {
 						Return(metrics.Metric{}, tc.mockError)
 				}
 
-				fileStorage := mocks.NewMockFileStorage()
-				if tc.method != "" {
-					fileStorage.On("Append", tc.metric).Return(nil)
-				}
-
-				m := metrics.NewMetrics(storage, fileStorage)
+				m := metrics.NewMetrics(storage)
 
 				_, err := m.Save(ctx, tc.metric)
 				if tc.wantError {
@@ -96,6 +92,7 @@ func TestMetrics(t *testing.T) {
 			{
 				name:      "not found",
 				metric:    "counter",
+				mockError: storage.ErrNotFound,
 				wantError: true,
 			},
 			{
@@ -111,7 +108,7 @@ func TestMetrics(t *testing.T) {
 				storage := mocks.NewMockStorage()
 				storage.On("Get", ctx, tc.metric).Return(tc.mockMetric, tc.mockError)
 
-				m := metrics.NewMetrics(storage, nil)
+				m := metrics.NewMetrics(storage)
 
 				got, err := m.Lookup(ctx, tc.metric)
 				if tc.wantError {
@@ -150,7 +147,7 @@ func TestMetrics(t *testing.T) {
 				storage := mocks.NewMockStorage()
 				storage.On("GetAll", ctx).Return(tc.mockMetrics, tc.mockError)
 
-				m := metrics.NewMetrics(storage, nil)
+				m := metrics.NewMetrics(storage)
 
 				got, err := m.All(ctx)
 				if tc.wantError {
@@ -205,7 +202,7 @@ func TestMetric(t *testing.T) {
 
 		require.Equal(t, "counter", counter.Kind().String())
 		require.Equal(t, "test", counter.Name())
-		require.Equal(t, "1", counter.String())
+		require.Equal(t, "1", counter.Str())
 
 		require.NotPanics(t, func() { counter.Int64() })
 		require.EqualValues(t, 1, counter.Int64())
@@ -216,7 +213,7 @@ func TestMetric(t *testing.T) {
 
 		require.Equal(t, "gauge", gauge.Kind().String())
 		require.Equal(t, "test", gauge.Name())
-		require.Equal(t, "1", gauge.String())
+		require.Equal(t, "1", gauge.Str())
 
 		require.NotPanics(t, func() { gauge.Float64() })
 		require.EqualValues(t, 1, gauge.Float64())
@@ -307,7 +304,7 @@ func TestMetric_IsEmpty(t *testing.T) {
 	}
 }
 
-func TestMetric_Marshal(t *testing.T) {
+func TestMetric_MarshalJSON(t *testing.T) {
 	testCases := []struct {
 		name      string
 		metric    metrics.Metric
@@ -345,7 +342,7 @@ func TestMetric_Marshal(t *testing.T) {
 	}
 }
 
-func TestMetric_Unmarshal(t *testing.T) {
+func TestMetric_UnmarshalJSON(t *testing.T) {
 	testCases := []struct {
 		name       string
 		data       []byte
@@ -398,6 +395,111 @@ func TestMetric_Unmarshal(t *testing.T) {
 			var got metrics.Metric
 			err := json.Unmarshal(tc.data, &got)
 
+			if tc.wantError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.True(t, tc.wantMetric.Equal(got))
+			}
+		})
+	}
+}
+
+func TestMetric_MarshalBinary(t *testing.T) {
+	testCases := []struct {
+		name string
+		want metrics.Metric
+	}{
+		{
+			name: "empty",
+			want: metrics.Metric{},
+		},
+		{
+			name: "counter",
+			want: metrics.Counter("\n\t\x1btest", 101),
+		},
+		{
+			name: "gauge",
+			want: metrics.Gauge("\n\t\x1btest", 1e-5),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := tc.want.MarshalBinary()
+			require.NoError(t, err)
+
+			var got metrics.Metric
+
+			err = got.UnmarshalBinary(data)
+			require.NoError(t, err)
+
+			require.True(t, tc.want.Equal(got))
+		})
+	}
+}
+
+func TestMetric_UnmarshalBinary(t *testing.T) {
+	marshal := func(t *testing.T, m metrics.Metric) []byte {
+		b, err := m.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+
+	testCases := []struct {
+		name       string
+		data       []byte
+		wantMetric metrics.Metric
+		wantError  bool
+	}{
+		{
+			name:      "too small",
+			wantError: true,
+		},
+		{
+			name: "corrupt",
+			data: func() []byte {
+				b := [19]byte{
+					9: 0x80, 10: 0x80, 11: 0x80,
+					12: 0x80, 13: 0x80, 14: 0x80,
+					15: 0x80, 16: 0x80, 17: 0x80,
+					18: 0x7f,
+				}
+				return b[:]
+			}(),
+			wantError: true,
+		},
+		{
+			name: "base64",
+			data: func() []byte {
+				b := [11]byte{9: 1, 10: 0x80}
+				return b[:]
+			}(),
+			wantError: true,
+		},
+		{
+			name: "empty",
+			data: marshal(t, metrics.Metric{}),
+		},
+		{
+			name:       "counter",
+			data:       marshal(t, metrics.Counter("\xb1\b\ttest", 1e3)),
+			wantMetric: metrics.Counter("\xb1\b\ttest", 1e3),
+		},
+		{
+			name:       "gauge",
+			data:       marshal(t, metrics.Gauge("\xb1\b\t\ftest", 1e-5)),
+			wantMetric: metrics.Gauge("\xb1\b\t\ftest", 1e-5),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got metrics.Metric
+
+			err := got.UnmarshalBinary(tc.data)
 			if tc.wantError {
 				require.Error(t, err)
 			} else {

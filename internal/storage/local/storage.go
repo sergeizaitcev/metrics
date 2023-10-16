@@ -1,125 +1,62 @@
 package local
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"sort"
-	"sync"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 )
 
-// Storage определяет локальное храналище метрик.
-type Storage struct {
-	mu      sync.RWMutex
-	metrics map[string]metrics.Metric
-}
+// memstorage определяет храналище метрик в памяти.
+type memstorage map[string]metrics.Metric
 
-// NewStorage возвращает новый экземпляр локального хранилища метрик.
-func NewStorage(values ...metrics.Metric) *Storage {
-	s := &Storage{
-		metrics: make(map[string]metrics.Metric, len(values)),
-	}
-	ctx := context.Background()
-	for _, value := range values {
-		switch value.Kind() {
-		case metrics.KindCounter:
-			s.Add(ctx, value)
-		case metrics.KindGauge:
-			s.Set(ctx, value)
-		}
-	}
-	return s
-}
-
-// Set устанавливает новое значение метрики и возвращает предыдущее.
-func (s *Storage) Set(ctx context.Context, value metrics.Metric) (metrics.Metric, error) {
-	if value.Kind() == metrics.KindUnknown {
-		return metrics.Metric{}, errors.New("local: unknown metric kind")
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	oldValue, ok := s.metrics[value.Name()]
-	if ok && oldValue.Kind() != value.Kind() {
-		return metrics.Metric{}, fmt.Errorf("local: expected metric kind %s, got %s",
-			oldValue.Kind(), value.Kind(),
+// conflict возвращает ошибку, если метрика конфликтует с уже записанными
+// метриками.
+func (s memstorage) conflict(value metrics.Metric) error {
+	actual, ok := s[value.Name()]
+	if ok && actual.Kind() != value.Kind() {
+		return fmt.Errorf("expected to get a metric kind %s, got %s",
+			actual.Kind(), value.Kind(),
 		)
 	}
-
-	s.metrics[value.Name()] = value
-
-	return oldValue, nil
+	return nil
 }
 
-// Add увеличивает значение метрики и возвращает итоговый результат.
-func (s *Storage) Add(ctx context.Context, value metrics.Metric) (metrics.Metric, error) {
-	if value.Kind() == metrics.KindUnknown {
-		return metrics.Metric{}, errors.New("local: unknown metric kind")
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	oldValue, ok := s.metrics[value.Name()]
+// add увеличивает значение метрики и возвращает актуальное значение.
+func (s memstorage) add(value metrics.Metric) metrics.Metric {
+	oldValue, ok := s[value.Name()]
 	if !ok {
-		s.metrics[value.Name()] = value
-		return value, nil
-	}
-	if oldValue.Kind() != value.Kind() {
-		return metrics.Metric{}, fmt.Errorf("local: expected metric kind %s, got %s",
-			oldValue.Kind(), value.Kind(),
-		)
+		s[value.Name()] = value
+		return value
 	}
 
 	switch value.Kind() {
 	case metrics.KindCounter:
-		value = metrics.Counter(value.Name(), oldValue.Int64()+value.Int64())
+		value = metrics.Counter(value.Name(), value.Int64()+oldValue.Int64())
 	case metrics.KindGauge:
-		value = metrics.Gauge(value.Name(), oldValue.Float64()+value.Float64())
+		value = metrics.Gauge(value.Name(), value.Float64()+oldValue.Float64())
 	}
 
-	s.metrics[value.Name()] = value
-
-	return value, nil
+	s[value.Name()] = value
+	return value
 }
 
-// Get возвращает метрику.
-func (s *Storage) Get(ctx context.Context, name string) (metrics.Metric, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	metric := s.metrics[name]
-
-	return metric, nil
+// set устанавливает новое значение метрики и возвращает предыдущее.
+func (s memstorage) set(value metrics.Metric) metrics.Metric {
+	oldValue := s[value.Name()]
+	s[value.Name()] = value
+	return oldValue
 }
 
-// GetAll возвращает все метрики.
-func (s *Storage) GetAll(ctx context.Context) ([]metrics.Metric, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+// get возвращает метрику.
+func (s memstorage) get(name string) metrics.Metric {
+	return s[name]
+}
 
-	values := make([]metrics.Metric, 0, len(s.metrics))
-	for _, metric := range s.metrics {
+// getAll возвращает все метрики.
+func (s memstorage) getAll() []metrics.Metric {
+	values := make([]metrics.Metric, 0, len(s))
+	for _, metric := range s {
 		values = append(values, metric)
 	}
-
-	sort.SliceStable(values, func(i, j int) bool {
-		return values[i].Name() < values[j].Name()
-	})
-
-	return values, nil
-}
-
-// Del удаляет метрику.
-func (s *Storage) Del(ctx context.Context, name string) (metrics.Metric, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	oldValue := s.metrics[name]
-	delete(s.metrics, name)
-
-	return oldValue, nil
+	return values
 }

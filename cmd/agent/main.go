@@ -34,10 +34,10 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	pollTicker := time.NewTicker(flagPollInterval.Duration())
+	pollTicker := time.NewTicker(time.Duration(flagPollInterval) * time.Second)
 	defer pollTicker.Stop()
 
-	reportTicker := time.NewTicker(flagReportInterval.Duration())
+	reportTicker := time.NewTicker(time.Duration(flagReportInterval) * time.Second)
 	defer reportTicker.Stop()
 
 	for {
@@ -72,8 +72,8 @@ func sendMetric(ctx context.Context, m metrics.Metric) error {
 		Path:   "/update",
 	}
 
-	if m.Kind() == metrics.KindUnknown {
-		return fmt.Errorf("unknown metric kind: %s", m.Kind())
+	if m.IsEmpty() {
+		return errors.New("metric is empty")
 	}
 
 	var buf bytes.Buffer

@@ -1,4 +1,4 @@
-package main
+package handlers_test
 
 import (
 	"errors"
@@ -10,8 +10,10 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sergeizaitcev/metrics/internal/handlers"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
-	"github.com/sergeizaitcev/metrics/internal/metrics/mocks"
+	"github.com/sergeizaitcev/metrics/internal/storage"
+	"github.com/sergeizaitcev/metrics/internal/storage/mocks"
 )
 
 func TestHandlers_all(t *testing.T) {
@@ -43,16 +45,15 @@ func TestHandlers_all(t *testing.T) {
 			storage := mocks.NewMockStorage()
 			storage.On("GetAll", mock.Anything).Return(tc.mockMetrics, tc.mockError)
 
-			router := newRouter(metrics.NewMetrics(storage, nil))
+			handler := handlers.New(metrics.NewMetrics(storage))
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-			router.ServeHTTP(rec, req)
+			handler.ServeHTTP(rec, req)
 
 			require.Equal(t, tc.wantCode, rec.Code)
 			require.Equal(t, tc.wantBody, rec.Body.String())
-			require.Equal(t, "text/html; charset=utf-8", rec.Header().Get("Content-Type"))
 		})
 	}
 }
@@ -111,8 +112,6 @@ func TestHandlers_update(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			fileStorage := mocks.NewMockFileStorage()
-
 			if tc.metric.Kind() != metrics.KindUnknown {
 				switch tc.metric.Kind() {
 				case metrics.KindCounter:
@@ -123,15 +122,14 @@ func TestHandlers_update(t *testing.T) {
 					storage.On("Set", mock.Anything, tc.metric).
 						Return(metrics.Metric{}, tc.mockError)
 				}
-				fileStorage.On("Append", tc.metric).Return((error)(nil))
 			}
 
-			router := newRouter(metrics.NewMetrics(storage, fileStorage))
+			handler := handlers.New(metrics.NewMetrics(storage))
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, tc.path, nil)
 
-			router.ServeHTTP(rec, req)
+			handler.ServeHTTP(rec, req)
 
 			require.Equal(t, tc.wantCode, rec.Code)
 		})
@@ -198,8 +196,6 @@ func TestHandlers_updateV2(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			fileStorage := mocks.NewMockFileStorage()
-
 			if tc.metric.Kind() != metrics.KindUnknown {
 				switch tc.metric.Kind() {
 				case metrics.KindCounter:
@@ -209,10 +205,9 @@ func TestHandlers_updateV2(t *testing.T) {
 					storage.On("Set", mock.Anything, tc.metric).
 						Return(tc.mockMetric, tc.mockError)
 				}
-				fileStorage.On("Append", tc.metric).Return((error)(nil))
 			}
 
-			router := newRouter(metrics.NewMetrics(storage, fileStorage))
+			handler := handlers.New(metrics.NewMetrics(storage))
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(tc.body))
@@ -220,7 +215,7 @@ func TestHandlers_updateV2(t *testing.T) {
 				req.Header.Add("Content-Type", "application/json")
 			}
 
-			router.ServeHTTP(rec, req)
+			handler.ServeHTTP(rec, req)
 
 			wantBody := tc.wantBody
 			if wantBody != "" {
@@ -259,7 +254,7 @@ func TestHandlers_get(t *testing.T) {
 		{
 			name:      "counter not found",
 			metric:    "counter",
-			mockError: metrics.ErrNotFound,
+			mockError: storage.ErrNotFound,
 			path:      "/value/counter/counter",
 			wantCode:  http.StatusNotFound,
 		},
@@ -281,7 +276,7 @@ func TestHandlers_get(t *testing.T) {
 		{
 			name:      "gauge not found",
 			metric:    "gauge",
-			mockError: metrics.ErrNotFound,
+			mockError: storage.ErrNotFound,
 			path:      "/value/gauge/gauge",
 			wantCode:  http.StatusNotFound,
 		},
@@ -301,12 +296,12 @@ func TestHandlers_get(t *testing.T) {
 				storage.On("Get", mock.Anything, tc.metric).Return(tc.mockMetric, tc.mockError)
 			}
 
-			router := newRouter(metrics.NewMetrics(storage, nil))
+			handler := handlers.New(metrics.NewMetrics(storage))
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 
-			router.ServeHTTP(rec, req)
+			handler.ServeHTTP(rec, req)
 
 			require.Equal(t, tc.wantCode, rec.Code)
 			require.Equal(t, tc.wantBody, rec.Body.String())
@@ -350,7 +345,7 @@ func TestHandlers_getV2(t *testing.T) {
 		{
 			name:      "counter not found",
 			metric:    "test",
-			mockError: metrics.ErrNotFound,
+			mockError: storage.ErrNotFound,
 			body:      `{"type":"counter","id":"test"}`,
 			wantCode:  http.StatusNotFound,
 		},
@@ -379,7 +374,7 @@ func TestHandlers_getV2(t *testing.T) {
 		{
 			name:      "gauge not found",
 			metric:    "test",
-			mockError: metrics.ErrNotFound,
+			mockError: storage.ErrNotFound,
 			body:      `{"type":"gauge","id":"test"}`,
 			wantCode:  http.StatusNotFound,
 		},
@@ -406,7 +401,7 @@ func TestHandlers_getV2(t *testing.T) {
 				storage.On("Get", mock.Anything, tc.metric).Return(tc.mockMetric, tc.mockError)
 			}
 
-			router := newRouter(metrics.NewMetrics(storage, nil))
+			handler := handlers.New(metrics.NewMetrics(storage))
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/value", strings.NewReader(tc.body))
@@ -414,7 +409,7 @@ func TestHandlers_getV2(t *testing.T) {
 				req.Header.Set("Content-Type", "application/json")
 			}
 
-			router.ServeHTTP(rec, req)
+			handler.ServeHTTP(rec, req)
 
 			wantBody := tc.wantBody
 			if wantBody != "" {

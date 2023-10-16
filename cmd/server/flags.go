@@ -7,20 +7,18 @@ import (
 	"net"
 	"os"
 	"strconv"
-
-	"github.com/sergeizaitcev/metrics/internal/flagutil"
 )
 
 var (
 	flagAddress         string
-	flagStoreInterval   = flagutil.Second(300)
+	flagStoreInterval   int64
 	flagFileStoragePath string
 	flagRestore         bool
 )
 
 func init() {
 	flag.StringVar(&flagAddress, "a", "localhost:8080", "server address")
-	flag.Var(&flagStoreInterval, "i", "store interval in seconds (0 - sync write)")
+	flag.Int64Var(&flagStoreInterval, "i", 300, "store interval in seconds")
 	flag.StringVar(&flagFileStoragePath, "f", "/tmp/metrics-db.json", "file path storage")
 	flag.BoolVar(&flagRestore, "r", true, "restore")
 }
@@ -49,10 +47,11 @@ func parseFlags() (err error) {
 
 	storeInterval := os.Getenv("STORE_INTERVAL")
 	if storeInterval != "" {
-		err := flagStoreInterval.Set(storeInterval)
+		v, err := strconv.ParseInt(storeInterval, 10, 64)
 		if err != nil {
 			return err
 		}
+		flagStoreInterval = v
 	}
 	if flagStoreInterval < 0 {
 		return errors.New("store internval must be is greater or equal than zero")
