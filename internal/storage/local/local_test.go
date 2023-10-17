@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
@@ -53,7 +54,9 @@ func testStorage(t *testing.T, synced bool, values ...metrics.Metric) (*local.St
 	}
 
 	storage, err := local.New(name, opts)
-	require.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.SkipNow()
+	}
 
 	t.Cleanup(func() { storage.Close() })
 	ctx := context.Background()
@@ -80,7 +83,10 @@ func TestStorage_reopen(t *testing.T) {
 	require.NoError(t, storage.Close())
 
 	opened, err := local.Open(name, nil)
-	require.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.SkipNow()
+	}
+
 	t.Cleanup(func() { opened.Close() })
 
 	ctx := context.Background()

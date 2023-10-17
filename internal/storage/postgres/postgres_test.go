@@ -7,6 +7,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
@@ -33,7 +34,9 @@ func testStorage(t *testing.T) (*postgres.Storage, context.Context) {
 	t.Helper()
 
 	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
+	if !assert.NoError(t, err) {
+		t.SkipNow()
+	}
 
 	ctx := testContext(t)
 
