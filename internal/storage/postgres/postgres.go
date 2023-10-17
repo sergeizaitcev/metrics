@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgerrcode"
+	"github.com/lib/pq"
+
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/internal/storage"
 )
@@ -65,6 +68,67 @@ func (s *Storage) Close() error {
 	if err != nil {
 		return fmt.Errorf("postgres: closing database: %w", err)
 	}
+	return nil
+}
+
+// SaveMany устанавливает или увеличивает значения метрики.
+func (s *Storage) SaveMany(ctx context.Context, values []metrics.Metric) error {
+	if len(values) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	addQuery := `INSERT INTO
+		metrics (name, kind, counter)
+	VALUES
+		($1, $2, $3)
+	ON CONFLICT (name, kind) DO
+	UPDATE
+		SET counter = metrics.counter + $3
+		WHERE metrics.name = $1 AND metrics.kind = $2`
+
+	setQuery := `INSERT INTO
+		metrics (name, kind, gauge)
+	VALUES
+		($1, $2, $3)
+	ON CONFLICT (name, kind) DO
+	UPDATE
+		SET gauge = $3
+		WHERE metrics.name = $1 AND metrics.kind = $2;`
+
+	for _, value := range values {
+		if value.IsEmpty() {
+			continue
+		}
+
+		var err error
+
+		switch value.Kind() {
+		case metrics.KindCounter:
+			_, err = tx.ExecContext(ctx, addQuery, value.Name(), value.Kind(), value.Int64())
+		case metrics.KindGauge:
+			_, err = tx.ExecContext(ctx, setQuery, value.Name(), value.Kind(), value.Float64())
+		}
+
+		if err != nil {
+			impl, ok := err.(*pq.Error)
+			if ok && pgerrcode.IsIntegrityConstraintViolation(string(impl.Code)) {
+				continue
+			}
+			tx.Rollback()
+			return fmt.Errorf("postgres: save metric: %w", err)
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("postgres: commit transaction: %w", err)
+	}
+
 	return nil
 }
 

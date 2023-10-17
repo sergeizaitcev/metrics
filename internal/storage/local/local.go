@@ -138,13 +138,6 @@ func (s *Storage) write(op operation, value metrics.Metric) error {
 		return fmt.Errorf("adding an entry to the buffer: %w", err)
 	}
 
-	if s.synced {
-		err = s.wal.flush()
-		if err != nil {
-			return fmt.Errorf("synchronous writing to a file: %w", err)
-		}
-	}
-
 	return nil
 }
 
@@ -222,6 +215,58 @@ func (s *Storage) Close() error {
 	return nil
 }
 
+// SaveMany устанавливает или увеличивает значения метрики.
+func (s *Storage) SaveMany(ctx context.Context, values []metrics.Metric) error {
+	if len(values) == 0 {
+		return nil
+	}
+
+	err := s.lockContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer s.unlock()
+
+	var writed bool
+
+	for _, value := range values {
+		if value.IsEmpty() {
+			continue
+		}
+
+		writed = true
+
+		err = s.metrics.conflict(value)
+		if err != nil {
+			return fmt.Errorf("local: conflicting metrics: %w", err)
+		}
+
+		switch value.Kind() {
+		case metrics.KindCounter:
+			err = s.write(operationAdd, value)
+			if err != nil {
+				return fmt.Errorf("local: writing an operation: %w", err)
+			}
+			s.metrics.add(value)
+		case metrics.KindGauge:
+			err = s.write(operationSet, value)
+			if err != nil {
+				return fmt.Errorf("local: writing an operation: %w", err)
+			}
+			s.metrics.set(value)
+		}
+	}
+
+	if s.synced && writed {
+		err = s.wal.flush()
+		if err != nil {
+			return fmt.Errorf("local: synchronous writing to a file: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // Add увеличивает значение метрики и возвращает итоговый результат.
 func (s *Storage) Add(ctx context.Context, value metrics.Metric) (metrics.Metric, error) {
 	if value.IsEmpty() {
@@ -242,6 +287,13 @@ func (s *Storage) Add(ctx context.Context, value metrics.Metric) (metrics.Metric
 	err = s.write(operationAdd, value)
 	if err != nil {
 		return metrics.Metric{}, fmt.Errorf("local: writing an operation: %w", err)
+	}
+
+	if s.synced {
+		err = s.wal.flush()
+		if err != nil {
+			return metrics.Metric{}, fmt.Errorf("local: synchronous writing to a file: %w", err)
+		}
 	}
 
 	return s.metrics.add(value), nil
@@ -267,6 +319,13 @@ func (s *Storage) Set(ctx context.Context, value metrics.Metric) (metrics.Metric
 	err = s.write(operationSet, value)
 	if err != nil {
 		return metrics.Metric{}, fmt.Errorf("local: writing an operation: %w", err)
+	}
+
+	if s.synced {
+		err = s.wal.flush()
+		if err != nil {
+			return metrics.Metric{}, fmt.Errorf("local: synchronous writing to a file: %w", err)
+		}
 	}
 
 	return s.metrics.set(value), nil

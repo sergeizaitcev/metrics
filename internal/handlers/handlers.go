@@ -53,6 +53,11 @@ func New(storage metrics.Storager, middlewares ...middleware.Middleware) http.Ha
 			path:   "/update",
 			handle: updateV2,
 		},
+		{
+			method: http.MethodPost,
+			path:   "/updates/",
+			handle: updateMany,
+		},
 	} {
 		handle := middleware.Use(h.handle(m), middlewares...)
 		router.Handle(h.method, h.path, handle)
@@ -231,5 +236,33 @@ func updateV2(m *metrics.Metrics) httprouter.Handle {
 		w.WriteHeader(http.StatusOK)
 
 		json.NewEncoder(w).Encode(&actual)
+	}
+}
+
+func updateMany(m *metrics.Metrics) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+		ctype := r.Header.Get("Content-Type")
+		if !strings.Contains(ctype, "application/json") {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			return
+		}
+
+		var values []metrics.Metric
+
+		err := json.NewDecoder(r.Body).Decode(&values)
+		if err != nil || len(values) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		ctx := r.Context()
+
+		err = m.SaveMany(ctx, values)
+		if err != nil {
+			fmt.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+
+		w.WriteHeader(http.StatusOK)
 	}
 }

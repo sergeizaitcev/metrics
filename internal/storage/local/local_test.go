@@ -59,18 +59,7 @@ func testStorage(t *testing.T, synced bool, values ...metrics.Metric) (*local.St
 	}
 
 	t.Cleanup(func() { storage.Close() })
-	ctx := context.Background()
-
-	for _, value := range values {
-		var err error
-		switch value.Kind() {
-		case metrics.KindCounter:
-			_, err = storage.Add(ctx, value)
-		case metrics.KindGauge:
-			_, err = storage.Set(ctx, value)
-		}
-		require.NoError(t, err)
-	}
+	storage.SaveMany(context.Background(), values)
 
 	return storage, name
 }

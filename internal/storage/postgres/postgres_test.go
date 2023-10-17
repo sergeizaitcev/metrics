@@ -170,10 +170,10 @@ func TestStorage(t *testing.T) {
 
 		storage, ctx := testStorage(t)
 
-		_, err := storage.Add(ctx, metrics.Counter("counter", 1))
-		require.NoError(t, err)
-
-		_, err = storage.Set(ctx, metrics.Gauge("gauge", 1))
+		err := storage.SaveMany(ctx, []metrics.Metric{
+			metrics.Counter("counter", 1),
+			metrics.Gauge("gauge", 1),
+		})
 		require.NoError(t, err)
 
 		for _, tc := range testCases {
@@ -189,7 +189,7 @@ func TestStorage(t *testing.T) {
 		}
 	})
 
-	t.Run("getAll", func(t *testing.T) {
+	t.Run("get_all", func(t *testing.T) {
 		storage, ctx := testStorage(t)
 		want := []metrics.Metric{
 			metrics.Counter("counter", 1),

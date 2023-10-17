@@ -56,29 +56,27 @@ func run() error {
 			continue
 		}
 
-		for _, metric := range snapshot {
-			if err := sendMetric(ctx, metric); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				break
-			}
+		err := sendMetrics(ctx, snapshot)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
 		}
 	}
 }
 
-func sendMetric(ctx context.Context, m metrics.Metric) error {
+func sendMetrics(ctx context.Context, values []metrics.Metric) error {
 	u := url.URL{
 		Scheme: "http",
 		Host:   flagAddress,
-		Path:   "/update",
+		Path:   "/updates/",
 	}
 
-	if m.IsEmpty() {
-		return errors.New("metric is empty")
+	if len(values) == 0 {
+		return errors.New("metrics is empty")
 	}
 
 	var buf bytes.Buffer
 
-	err := json.NewEncoder(&buf).Encode(&m)
+	err := json.NewEncoder(&buf).Encode(&values)
 	if err != nil {
 		return err
 	}

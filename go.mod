@@ -3,6 +3,7 @@ module github.com/sergeizaitcev/metrics
 go 1.20
 
 require (
+	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/lib/pq v1.10.9
 	github.com/rs/zerolog v1.31.0

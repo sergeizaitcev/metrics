@@ -21,6 +21,9 @@ type Storager interface {
 	// Close закрывает хранилище.
 	Close() error
 
+	// SaveMany устанавливает или увеличивает значения метрик.
+	SaveMany(context.Context, []Metric) error
+
 	// Add увеличивает значение метрики и возвращает итоговый результат.
 	Add(context.Context, Metric) (Metric, error)
 
@@ -67,6 +70,20 @@ func (m *Metrics) Save(ctx context.Context, metric Metric) (Metric, error) {
 	}
 
 	return actual, nil
+}
+
+// SaveMany сохраняет метрики.
+func (m *Metrics) SaveMany(ctx context.Context, metrics []Metric) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	err := m.storage.SaveMany(ctx, metrics)
+	if err != nil {
+		return fmt.Errorf("metrics: save metrics: %w", err)
+	}
+
+	return nil
 }
 
 // Lookup выполняет поиск метрики по её имени.
