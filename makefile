@@ -9,6 +9,14 @@ ADDRESS := localhost:$(SERVER_PORT)
 .PHONY: all
 all: test lint autotest
 
+.PHONY: up
+up:
+	@docker-compose -f ./scripts/docker-compose.yml up -d postgres
+
+.PHONY: down
+down:
+	@docker-compose -f ./scripts/docker-compose.yml down
+
 .PHONY: lint
 lint:
 	@go vet -vettool=$(shell which statictest) ./...

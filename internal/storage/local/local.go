@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/internal/storage"
@@ -14,7 +15,7 @@ import (
 // StorageOpts определяет необязательные параметры для локального хранилища
 // метрик.
 type StorageOpts struct {
-	Synced bool // Синхронная запись.
+	StoreInterval time.Duration
 }
 
 // Storage определяет локальное храналище метрик, записывающее метрики на диск.
@@ -24,9 +25,12 @@ type Storage struct {
 	synced  bool
 
 	sem chan struct{}
+
+	term         chan struct{}
+	singleflight chan struct{}
 }
 
-func open(filename string, flags int) (*Storage, error) {
+func create(filename string, flags int, opts *StorageOpts) (*Storage, error) {
 	fd, err := os.OpenFile(filename, flags, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("local: %w", err)
@@ -39,34 +43,31 @@ func open(filename string, flags int) (*Storage, error) {
 	}
 	s.unlock()
 
+	var interval time.Duration
+
+	if opts != nil {
+		interval = opts.StoreInterval
+		s.synced = interval == 0
+	}
+	if interval > 0 {
+		go s.flushing(interval)
+	}
+
 	return s, nil
 }
 
 // New создает локальный файл по пути filename и возвращает локальное хранилище
 // метрик.
 func New(filename string, opts *StorageOpts) (*Storage, error) {
-	s, err := open(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC)
-	if err != nil {
-		return nil, err
-	}
-
-	if opts != nil {
-		s.synced = opts.Synced
-	}
-
-	return s, nil
+	return create(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, opts)
 }
 
 // Open открывает локальный файл по пути filename и возвращает локальное
 // хранилище метрик.
 func Open(filename string, opts *StorageOpts) (*Storage, error) {
-	s, err := open(filename, os.O_RDWR|os.O_CREATE)
+	s, err := create(filename, os.O_RDWR|os.O_CREATE, opts)
 	if err != nil {
 		return nil, err
-	}
-
-	if opts != nil {
-		s.synced = opts.Synced
 	}
 
 	if err = s.load(); err != nil {
@@ -77,11 +78,7 @@ func Open(filename string, opts *StorageOpts) (*Storage, error) {
 	return s, nil
 }
 
-func (s *Storage) lock(ctx context.Context) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
+func (s *Storage) lockContext(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -90,8 +87,11 @@ func (s *Storage) lock(ctx context.Context) error {
 			return storage.ErrStorageClosed
 		}
 	}
-
 	return nil
+}
+
+func (s *Storage) lock() error {
+	return s.lockContext(context.Background())
 }
 
 func (s *Storage) unlock() {
@@ -100,7 +100,7 @@ func (s *Storage) unlock() {
 
 // load загружает метрики из файла в память.
 func (s *Storage) load() error {
-	err := s.lock(context.Background())
+	err := s.lock()
 	if err != nil {
 		return err
 	}
@@ -138,48 +138,18 @@ func (s *Storage) write(op operation, value metrics.Metric) error {
 		return fmt.Errorf("adding an entry to the buffer: %w", err)
 	}
 
-	if !s.synced {
-		return nil
-	}
-
-	err = s.wal.flush()
-	if err != nil {
-		return fmt.Errorf("synchronous writing to a file: %w", err)
+	if s.synced {
+		err = s.wal.flush()
+		if err != nil {
+			return fmt.Errorf("synchronous writing to a file: %w", err)
+		}
 	}
 
 	return nil
 }
 
-// Ping возвращает ошибку, если не удалось выполнить пинг хранилища.
-func (s *Storage) Ping(ctx context.Context) error {
-	err := s.lock(ctx)
-	if err != nil {
-		return err
-	}
-	s.unlock()
-	return nil
-}
-
-// Close закрывает локальное хранилище метрик.
-func (s *Storage) Close() error {
-	err := s.lock(context.Background())
-	if err != nil {
-		return err
-	}
-
-	err = s.wal.close()
-	if err != nil {
-		s.unlock()
-		return fmt.Errorf("local: closing a storage: %w", err)
-	}
-
-	close(s.sem)
-	return nil
-}
-
-// Flush записывает буферезированные записи метрик в файл.
-func (s *Storage) Flush() error {
-	err := s.lock(context.Background())
+func (s *Storage) flush() error {
+	err := s.lock()
 	if err != nil {
 		return err
 	}
@@ -193,13 +163,72 @@ func (s *Storage) Flush() error {
 	return nil
 }
 
+func (s *Storage) flushing(d time.Duration) {
+	err := s.lock()
+	if err != nil {
+		return
+	}
+
+	if s.term == nil {
+		s.term = make(chan struct{})
+	}
+	if s.singleflight == nil {
+		s.singleflight = make(chan struct{})
+	}
+
+	s.unlock()
+
+	ticker := time.NewTicker(d)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.term:
+			close(s.singleflight)
+			return
+		case <-ticker.C:
+			s.flush()
+		}
+	}
+}
+
+// Ping возвращает ошибку, если не удалось выполнить пинг хранилища.
+func (s *Storage) Ping(ctx context.Context) error {
+	err := s.lockContext(ctx)
+	if err != nil {
+		return err
+	}
+	s.unlock()
+	return nil
+}
+
+// Close закрывает локальное хранилище метрик.
+func (s *Storage) Close() error {
+	err := s.lock()
+	if err != nil {
+		return err
+	}
+
+	s.wal.close()
+
+	if s.term != nil {
+		close(s.term)
+	}
+	if s.singleflight != nil {
+		<-s.singleflight
+	}
+
+	close(s.sem)
+	return nil
+}
+
 // Add увеличивает значение метрики и возвращает итоговый результат.
 func (s *Storage) Add(ctx context.Context, value metrics.Metric) (metrics.Metric, error) {
 	if value.IsEmpty() {
 		return metrics.Metric{}, errors.New("local: metric is empty")
 	}
 
-	err := s.lock(ctx)
+	err := s.lockContext(ctx)
 	if err != nil {
 		return metrics.Metric{}, err
 	}
@@ -224,7 +253,7 @@ func (s *Storage) Set(ctx context.Context, value metrics.Metric) (metrics.Metric
 		return metrics.Metric{}, errors.New("local: metric is empty")
 	}
 
-	err := s.lock(ctx)
+	err := s.lockContext(ctx)
 	if err != nil {
 		return metrics.Metric{}, err
 	}
@@ -245,7 +274,7 @@ func (s *Storage) Set(ctx context.Context, value metrics.Metric) (metrics.Metric
 
 // Get возвращает метрику.
 func (s *Storage) Get(ctx context.Context, name string) (metrics.Metric, error) {
-	err := s.lock(ctx)
+	err := s.lockContext(ctx)
 	if err != nil {
 		return metrics.Metric{}, err
 	}
@@ -262,7 +291,7 @@ func (s *Storage) Get(ctx context.Context, name string) (metrics.Metric, error) 
 
 // GetAll возвращает все метрики.
 func (s *Storage) GetAll(ctx context.Context) ([]metrics.Metric, error) {
-	err := s.lock(ctx)
+	err := s.lockContext(ctx)
 	if err != nil {
 		return nil, err
 	}

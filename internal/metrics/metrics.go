@@ -15,6 +15,12 @@ import (
 
 // Storager представляет интерфейс хранилища метрик.
 type Storager interface {
+	// Ping выполняет пинг к хранилищу.
+	Ping(context.Context) error
+
+	// Close закрывает хранилище.
+	Close() error
+
 	// Add увеличивает значение метрики и возвращает итоговый результат.
 	Add(context.Context, Metric) (Metric, error)
 
