@@ -60,7 +60,7 @@ func (s *Storage) SaveMany(ctx context.Context, values []metrics.Metric) error {
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("postgres: begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -144,7 +144,7 @@ func (s *Storage) Add(ctx context.Context, value metrics.Metric) (metrics.Metric
 		value.Int64(),
 	).Scan(&actual)
 	if err != nil {
-		return metrics.Metric{}, fmt.Errorf("postgres: add metric: %w", err)
+		return metrics.Metric{}, fmt.Errorf("postgres: execution query: %w", err)
 	}
 
 	return metrics.Counter(value.Name(), actual), nil
@@ -187,7 +187,7 @@ func (s *Storage) Set(ctx context.Context, value metrics.Metric) (metrics.Metric
 		value.Float64(),
 	).Scan(&old)
 	if err != nil {
-		return metrics.Metric{}, err
+		return metrics.Metric{}, fmt.Errorf("postgres: execution query: %w", err)
 	}
 
 	if old.Valid {
@@ -204,7 +204,7 @@ func (s *Storage) Get(ctx context.Context, name string) (metrics.Metric, error) 
 	row := s.db.QueryRowContext(ctx, query, name)
 	err := row.Err()
 	if err != nil {
-		return metrics.Metric{}, err
+		return metrics.Metric{}, fmt.Errorf("postgres: execution query: %w", err)
 	}
 
 	var (
@@ -218,7 +218,7 @@ func (s *Storage) Get(ctx context.Context, name string) (metrics.Metric, error) 
 		if err == sql.ErrNoRows {
 			err = storage.ErrNotFound
 		}
-		return metrics.Metric{}, err
+		return metrics.Metric{}, fmt.Errorf("postgres: scan row: %w", err)
 	}
 
 	var metric metrics.Metric
@@ -239,7 +239,7 @@ func (s *Storage) GetAll(ctx context.Context) ([]metrics.Metric, error) {
 
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("postgres: execution query: %w", err)
 	}
 	defer rows.Close()
 
@@ -255,7 +255,7 @@ func (s *Storage) GetAll(ctx context.Context) ([]metrics.Metric, error) {
 
 		err = rows.Scan(&name, &kind, &counter, &gauge)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("postgres: scan row: %w", err)
 		}
 
 		var metric metrics.Metric
@@ -273,7 +273,7 @@ func (s *Storage) GetAll(ctx context.Context) ([]metrics.Metric, error) {
 		if err == sql.ErrNoRows {
 			err = storage.ErrNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("postgres: iterate by rows: %w", err)
 	}
 
 	return values, nil
