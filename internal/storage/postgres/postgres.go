@@ -215,7 +215,7 @@ func (s *Storage) Get(ctx context.Context, name string) (metrics.Metric, error) 
 
 	err = row.Scan(&kind, &counter, &gauge)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			err = storage.ErrNotFound
 		}
 		return metrics.Metric{}, fmt.Errorf("postgres: scan row: %w", err)
@@ -270,7 +270,7 @@ func (s *Storage) GetAll(ctx context.Context) ([]metrics.Metric, error) {
 		values = append(values, metric)
 	}
 	if err = rows.Err(); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			err = storage.ErrNotFound
 		}
 		return nil, fmt.Errorf("postgres: iterate by rows: %w", err)
