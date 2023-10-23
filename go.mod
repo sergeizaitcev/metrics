@@ -6,6 +6,7 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/lib/pq v1.10.9
+	github.com/pressly/goose/v3 v3.15.1
 	github.com/rs/zerolog v1.31.0
 	github.com/stretchr/testify v1.8.4
 )

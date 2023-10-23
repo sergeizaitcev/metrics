@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/lib/pq"
 
+	"github.com/sergeizaitcev/metrics/deployments/migrations"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/internal/storage"
 )
@@ -25,32 +26,12 @@ func New(db *sql.DB) *Storage {
 
 // Up запускает миграцию в БД.
 func (s *Storage) Up(ctx context.Context) error {
-	query := `CREATE TABLE IF NOT EXISTS metrics (
-		name CHARACTER VARYING(256),
-		kind SMALLINT,
-		counter BIGINT,
-		gauge DOUBLE PRECISION,
-		PRIMARY KEY(name, kind)
-	);`
-
-	_, err := s.db.ExecContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("postgres: up migration: %w", err)
-	}
-
-	return nil
+	return migrations.Up(ctx, s.db)
 }
 
 // Down откатывает миграцию в БД.
 func (s *Storage) Down(ctx context.Context) error {
-	query := "DROP TABLE IF EXISTS metrics;"
-
-	_, err := s.db.ExecContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("postgres: down migration: %w", err)
-	}
-
-	return nil
+	return migrations.Down(ctx, s.db)
 }
 
 // Ping выполняет пинг к БД.
