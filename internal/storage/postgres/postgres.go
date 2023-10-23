@@ -62,6 +62,7 @@ func (s *Storage) SaveMany(ctx context.Context, values []metrics.Metric) error {
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
 	addQuery := `INSERT INTO
 		metrics (name, kind, counter)
@@ -100,7 +101,6 @@ func (s *Storage) SaveMany(ctx context.Context, values []metrics.Metric) error {
 			if ok && pgerrcode.IsIntegrityConstraintViolation(string(impl.Code)) {
 				continue
 			}
-			tx.Rollback()
 			return fmt.Errorf("postgres: save metric: %w", err)
 		}
 	}
