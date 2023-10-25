@@ -17,7 +17,11 @@ import (
 
 // New возвращает новый обработчик HTTP-запросов.
 func New(s storage.Storager, middlewares ...middleware.Middleware) http.Handler {
-	router := httprouter.New()
+	router := &httprouter.Router{
+		HandleMethodNotAllowed: true,
+		HandleOPTIONS:          true,
+	}
+
 	router.GET("/ping", ping(s))
 
 	for _, h := range []struct {
@@ -42,12 +46,22 @@ func New(s storage.Storager, middlewares ...middleware.Middleware) http.Handler 
 		},
 		{
 			method: http.MethodPost,
+			path:   "/value/",
+			handle: getV2,
+		},
+		{
+			method: http.MethodPost,
 			path:   "/update/:metric/:name/:value",
 			handle: update,
 		},
 		{
 			method: http.MethodPost,
 			path:   "/update",
+			handle: updateV2,
+		},
+		{
+			method: http.MethodPost,
+			path:   "/update/",
 			handle: updateV2,
 		},
 		{
