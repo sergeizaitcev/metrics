@@ -21,6 +21,7 @@ import (
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
 	"github.com/sergeizaitcev/metrics/internal/storage/postgres"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
+	"github.com/sergeizaitcev/metrics/pkg/sign"
 )
 
 func main() {
@@ -51,22 +52,8 @@ func run() error {
 		return err
 	}
 
-	logger := zerolog.New(os.Stdout)
-	paramsFunc := func(p *middleware.Params) {
-		entry := logger.Info()
-		entry.Str("method", p.Method)
-		entry.Str("uri", p.URI)
-		entry.Int("statusCode", p.StatusCode)
-		entry.Dur("duration", p.Duration)
-		entry.Int("size", len(p.Body))
-		entry.Send()
-	}
-
-	handler := handlers.New(
-		storage,
-		middleware.Gzip(flate.BestCompression, "application/json", "text/html"),
-		middleware.Trace(paramsFunc),
-	)
+	middlewares := newMiddlewares()
+	handler := handlers.New(storage, middlewares...)
 
 	return listenAndServe(ctx, handler)
 }
@@ -93,6 +80,34 @@ func newStorage() (storage.Storager, error) {
 	}
 
 	return local.New(flagFileStoragePath, opts)
+}
+
+func newMiddlewares() []middleware.Middleware {
+	middlewares := make([]middleware.Middleware, 0, 3)
+
+	if flagSHA256Key != "" {
+		signer := sign.Signer(flagSHA256Key)
+		middlewares = append(middlewares, middleware.Sign(signer))
+	}
+
+	middlewares = append(
+		middlewares,
+		middleware.Gzip(flate.BestCompression, "application/json", "text/html"),
+	)
+
+	logger := zerolog.New(os.Stdout)
+	paramsFunc := func(p *middleware.Params) {
+		entry := logger.Info()
+		entry.Str("method", p.Method)
+		entry.Str("uri", p.URI)
+		entry.Int("statusCode", p.StatusCode)
+		entry.Dur("duration", p.Duration)
+		entry.Int("size", len(p.Body))
+		entry.Send()
+	}
+	middlewares = append(middlewares, middleware.Trace(paramsFunc))
+
+	return middlewares
 }
 
 func listenAndServe(ctx context.Context, handler http.Handler) error {

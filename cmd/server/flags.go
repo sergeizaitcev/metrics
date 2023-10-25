@@ -12,6 +12,7 @@ var (
 	flagAddress         string
 	flagDatabaseDSN     string
 	flagFileStoragePath string
+	flagSHA256Key       string
 	flagStoreInterval   int64
 	flagRestore         bool
 )
@@ -22,6 +23,7 @@ func parseFlags() error {
 	flags.StringVar(&flagAddress, "a", "localhost:8080", "server address")
 	flags.StringVar(&flagDatabaseDSN, "d", "", "database dsn")
 	flags.StringVar(&flagFileStoragePath, "f", "/tmp/metrics-db.wal", "file path storage")
+	flags.StringVar(&flagSHA256Key, "k", "", "sha256 key")
 	flags.Int64Var(&flagStoreInterval, "i", 300, "store interval in seconds")
 	flags.BoolVar(&flagRestore, "r", true, "restore")
 
@@ -47,6 +49,11 @@ func parseFlags() error {
 	fileStoragePath := os.Getenv("FILE_STORAGE_PATH")
 	if fileStoragePath != "" {
 		flagFileStoragePath = fileStoragePath
+	}
+
+	key := os.Getenv("KEY")
+	if key != "" {
+		flagSHA256Key = key
 	}
 
 	storeInterval := os.Getenv("STORE_INTERVAL")
