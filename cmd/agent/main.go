@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +17,8 @@ import (
 	"time"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
+	"github.com/sergeizaitcev/metrics/pkg/middleware"
+	"github.com/sergeizaitcev/metrics/pkg/sign"
 )
 
 func main() {
@@ -99,30 +103,38 @@ func prepare(ctx context.Context, values []metrics.Metric) (*http.Request, error
 	req.Header.Add("Accept-Encoding", "gzip")
 	req.Header.Add("Content-Type", "application/json")
 
+	if flagSHA256Key != "" {
+		s := sign.Signer(flagSHA256Key)
+		signed := s.Sign(buf.Bytes())
+		hash := base64.RawURLEncoding.EncodeToString(signed)
+		req.Header.Add(middleware.SignHeader, hash)
+	}
+
 	return req, nil
 }
 
 func send(req *http.Request) error {
 	ctx := req.Context()
 
+retry:
 	for i := 1; i < 4; i++ {
 		res, err := http.DefaultClient.Do(req)
 		if err == nil {
 			io.Copy(io.Discard, res.Body)
 			return res.Body.Close()
 		}
-
-		if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 
-		if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNABORTED) {
+		ne, ok := err.(net.Error)
+		if ok && ne.Timeout() {
 			delay := time.Duration(2*i-1) * time.Second
 			select {
 			case <-ctx.Done():
 				return nil
 			case <-time.After(delay):
-				continue
+				continue retry
 			}
 		}
 

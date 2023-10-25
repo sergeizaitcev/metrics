@@ -10,6 +10,7 @@ import (
 
 var (
 	flagAddress        string
+	flagSHA256Key      string
 	flagReportInterval int64
 	flagPollInterval   int64
 )
@@ -18,6 +19,7 @@ func parseFlags() error {
 	flags := flag.NewFlagSet("agent", flag.ExitOnError)
 
 	flags.StringVar(&flagAddress, "a", "localhost:8080", "server address")
+	flags.StringVar(&flagSHA256Key, "k", "", "sha256 key")
 	flags.Int64Var(&flagReportInterval, "r", 10, "report interval in seconds")
 	flags.Int64Var(&flagPollInterval, "p", 2, "poll interval in seconds")
 
@@ -30,10 +32,14 @@ func parseFlags() error {
 	if addr != "" {
 		flagAddress = addr
 	}
-
 	_, _, err = net.SplitHostPort(flagAddress)
 	if err != nil {
 		return err
+	}
+
+	key := os.Getenv("KEY")
+	if key != "" {
+		flagSHA256Key = key
 	}
 
 	poll := os.Getenv("POLL_INTERVAL")
