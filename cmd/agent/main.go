@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 	"github.com/sergeizaitcev/metrics/pkg/sign"
@@ -38,33 +40,83 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	pollTicker := time.NewTicker(time.Duration(flagPollInterval) * time.Second)
-	defer pollTicker.Stop()
+	metricChan := rateLimit(ctx, generator(ctx))
 
-	reportTicker := time.NewTicker(time.Duration(flagReportInterval) * time.Second)
-	defer reportTicker.Stop()
+	errg, errgCtx := errgroup.WithContext(ctx)
+	errg.SetLimit(flagRateLimit)
 
-	for {
-		var report bool
-
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-pollTicker.C:
-		case <-reportTicker.C:
-			report = true
-		}
-
-		snapshot := metrics.Snapshot()
-		if !report {
-			continue
-		}
-
-		err := sendMetrics(ctx, snapshot)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
+	for i := 0; i < flagRateLimit; i++ {
+		errg.Go(func() error {
+			for {
+				select {
+				case <-errgCtx.Done():
+					return nil
+				case values := <-metricChan:
+					err := sendMetrics(ctx, values)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		})
 	}
+
+	return errg.Wait()
+}
+
+func generator(ctx context.Context) <-chan []metrics.Metric {
+	metricChan := make(chan []metrics.Metric, 1)
+
+	go func() {
+		ticker := time.NewTicker(time.Duration(flagPollInterval) * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+
+			select {
+			case <-metricChan:
+			default:
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case metricChan <- metrics.Snapshot():
+			}
+		}
+	}()
+
+	return metricChan
+}
+
+func rateLimit(ctx context.Context, in <-chan []metrics.Metric) <-chan []metrics.Metric {
+	metricChan := make(chan []metrics.Metric)
+
+	go func() {
+		ticker := time.NewTicker(time.Duration(flagReportInterval) * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+
+			select {
+			case <-ctx.Done():
+				return
+			case metricChan <- <-in:
+			}
+		}
+	}()
+
+	return metricChan
 }
 
 func sendMetrics(ctx context.Context, values []metrics.Metric) error {

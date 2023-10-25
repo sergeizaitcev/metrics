@@ -4,6 +4,9 @@ import (
 	"runtime"
 	"sync/atomic"
 
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
+
 	"github.com/sergeizaitcev/metrics/pkg/randutil"
 )
 
@@ -14,13 +17,24 @@ func Snapshot() []Metric {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 
+	memstat, err := mem.VirtualMemory()
+	if err != nil {
+		panic(err)
+	}
+
+	cpustat, err := cpu.Percent(0, false)
+	if err != nil {
+		panic(err)
+	}
+
 	snapCnt.Add(1)
 
 	return []Metric{
 		Gauge("Alloc", float64(ms.Alloc)),
 		Gauge("BuckHashSys", float64(ms.BuckHashSys)),
+		Gauge("CPUutilization1", cpustat[0]),
 		Gauge("Frees", float64(ms.Frees)),
-		Gauge("NumForcedGC", float64(ms.NumForcedGC)),
+		Gauge("FreeMemory", float64(memstat.Free)),
 		Gauge("GCCPUFraction", ms.GCCPUFraction),
 		Gauge("GCSys", float64(ms.GCSys)),
 		Gauge("HeapAlloc", float64(ms.HeapAlloc)),
@@ -37,6 +51,7 @@ func Snapshot() []Metric {
 		Gauge("MSpanInuse", float64(ms.MSpanInuse)),
 		Gauge("MSpanSys", float64(ms.MSpanSys)),
 		Gauge("NextGC", float64(ms.NextGC)),
+		Gauge("NumForcedGC", float64(ms.NumForcedGC)),
 		Gauge("NumGC", float64(ms.NumGC)),
 		Gauge("OtherSys", float64(ms.OtherSys)),
 		Gauge("PauseTotalNs", float64(ms.PauseTotalNs)),
@@ -46,5 +61,6 @@ func Snapshot() []Metric {
 		Gauge("StackSys", float64(ms.StackSys)),
 		Gauge("Sys", float64(ms.Sys)),
 		Gauge("TotalAlloc", float64(ms.TotalAlloc)),
+		Gauge("TotalMemory", float64(memstat.Total)),
 	}
 }

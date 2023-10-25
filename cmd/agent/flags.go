@@ -13,6 +13,7 @@ var (
 	flagSHA256Key      string
 	flagReportInterval int64
 	flagPollInterval   int64
+	flagRateLimit      int
 )
 
 func parseFlags() error {
@@ -22,6 +23,7 @@ func parseFlags() error {
 	flags.StringVar(&flagSHA256Key, "k", "", "sha256 key")
 	flags.Int64Var(&flagReportInterval, "r", 10, "report interval in seconds")
 	flags.Int64Var(&flagPollInterval, "p", 2, "poll interval in seconds")
+	flags.IntVar(&flagRateLimit, "l", 1, "rate limit")
 
 	err := flags.Parse(os.Args[1:])
 	if err != nil {
@@ -51,7 +53,7 @@ func parseFlags() error {
 		flagPollInterval = v
 	}
 	if flagPollInterval <= 0 {
-		return errors.New("poll internval must be is greater than zero")
+		return errors.New("poll interval must be is greater than zero")
 	}
 
 	report := os.Getenv("REPORT_INTERVAL")
@@ -63,7 +65,19 @@ func parseFlags() error {
 		flagReportInterval = v
 	}
 	if flagReportInterval <= 0 {
-		return errors.New("report internval must be is greater than zero")
+		return errors.New("report interval must be is greater than zero")
+	}
+
+	limit := os.Getenv("RATE_LIMIT")
+	if limit != "" {
+		v, err := strconv.ParseInt(limit, 10, 64)
+		if err != nil {
+			return err
+		}
+		flagRateLimit = int(v)
+	}
+	if flagRateLimit <= 0 {
+		return errors.New("rate limit must be is greater than zero")
 	}
 
 	return nil
