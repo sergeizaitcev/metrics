@@ -17,8 +17,11 @@ import (
 
 // New возвращает новый обработчик HTTP-запросов, используйющий сервис для
 // работы с метриками.
-func New(m *metrics.Metrics, middlewares ...middleware.Middleware) http.Handler {
+func New(storage metrics.Storager, middlewares ...middleware.Middleware) http.Handler {
+	m := metrics.NewMetrics(storage)
+
 	router := httprouter.New()
+	router.GET("/ping", ping(storage))
 
 	for _, h := range []struct {
 		method string
@@ -50,12 +53,26 @@ func New(m *metrics.Metrics, middlewares ...middleware.Middleware) http.Handler 
 			path:   "/update",
 			handle: updateV2,
 		},
+		{
+			method: http.MethodPost,
+			path:   "/updates/",
+			handle: updateMany,
+		},
 	} {
 		handle := middleware.Use(h.handle(m), middlewares...)
 		router.Handle(h.method, h.path, handle)
 	}
 
 	return router
+}
+
+func ping(s metrics.Storager) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+		ctx := r.Context()
+		if err := s.Ping(ctx); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}
 }
 
 func all(m *metrics.Metrics) httprouter.Handle {
@@ -219,5 +236,33 @@ func updateV2(m *metrics.Metrics) httprouter.Handle {
 		w.WriteHeader(http.StatusOK)
 
 		json.NewEncoder(w).Encode(&actual)
+	}
+}
+
+func updateMany(m *metrics.Metrics) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+		ctype := r.Header.Get("Content-Type")
+		if !strings.Contains(ctype, "application/json") {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			return
+		}
+
+		var values []metrics.Metric
+
+		err := json.NewDecoder(r.Body).Decode(&values)
+		if err != nil || len(values) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		ctx := r.Context()
+
+		err = m.SaveMany(ctx, values)
+		if err != nil {
+			fmt.Println(err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+
+		w.WriteHeader(http.StatusOK)
 	}
 }

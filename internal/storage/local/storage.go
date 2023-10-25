@@ -29,14 +29,9 @@ func (s memstorage) add(value metrics.Metric) metrics.Metric {
 		return value
 	}
 
-	switch value.Kind() {
-	case metrics.KindCounter:
-		value = metrics.Counter(value.Name(), value.Int64()+oldValue.Int64())
-	case metrics.KindGauge:
-		value = metrics.Gauge(value.Name(), value.Float64()+oldValue.Float64())
-	}
-
+	value = metrics.Counter(value.Name(), value.Int64()+oldValue.Int64())
 	s[value.Name()] = value
+
 	return value
 }
 

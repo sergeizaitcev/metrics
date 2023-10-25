@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -56,29 +57,27 @@ func run() error {
 			continue
 		}
 
-		for _, metric := range snapshot {
-			if err := sendMetric(ctx, metric); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				break
-			}
+		err := sendMetrics(ctx, snapshot)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
 		}
 	}
 }
 
-func sendMetric(ctx context.Context, m metrics.Metric) error {
+func sendMetrics(ctx context.Context, values []metrics.Metric) error {
 	u := url.URL{
 		Scheme: "http",
 		Host:   flagAddress,
-		Path:   "/update",
+		Path:   "/updates/",
 	}
 
-	if m.IsEmpty() {
-		return errors.New("metric is empty")
+	if len(values) == 0 {
+		return errors.New("metrics is empty")
 	}
 
 	var buf bytes.Buffer
 
-	err := json.NewEncoder(&buf).Encode(&m)
+	err := json.NewEncoder(&buf).Encode(&values)
 	if err != nil {
 		return err
 	}
@@ -92,14 +91,29 @@ func sendMetric(ctx context.Context, m metrics.Metric) error {
 	req.Header.Add("Accept-Encoding", "gzip")
 	req.Header.Add("Content-Type", "application/json")
 
-	res, err := http.DefaultClient.Do(req)
-	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
-		return nil
-	}
-	if err != nil {
+	for i := 0; i < 3; i++ {
+		res, err := http.DefaultClient.Do(req)
+		if err == nil {
+			io.Copy(io.Discard, res.Body)
+			return res.Body.Close()
+		}
+
+		if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+			return nil
+		}
+
+		if strings.Contains(err.Error(), "connection refused") {
+			delay := time.Duration(2*i-1) * time.Second
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(delay):
+				continue
+			}
+		}
+
 		return err
 	}
 
-	io.Copy(io.Discard, res.Body)
-	return res.Body.Close()
+	return errors.New("failed to send metrics to the server")
 }

@@ -18,6 +18,24 @@ func NewMockStorage() *MockStorage {
 	return &MockStorage{}
 }
 
+func (m *MockStorage) Ping(ctx context.Context) error {
+	args := m.Called(ctx)
+	err := args.Error(0)
+	return err
+}
+
+func (m *MockStorage) Close() error {
+	args := m.Called()
+	err := args.Error(0)
+	return err
+}
+
+func (m *MockStorage) SaveMany(ctx context.Context, values []metrics.Metric) error {
+	args := m.Called(ctx, values)
+	err := args.Error(0)
+	return err
+}
+
 func (m *MockStorage) Set(ctx context.Context, metric metrics.Metric) (metrics.Metric, error) {
 	args := m.Called(ctx, metric)
 	value := args.Get(0).(metrics.Metric)

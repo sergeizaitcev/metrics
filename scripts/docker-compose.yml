@@ -1,0 +1,22 @@
+version: '3'
+
+services:
+  postgres:
+    image: 'bitnami/postgresql:latest'
+    environment:
+      - POSTGRESQL_USERNAME=postgres
+      - POSTGRESQL_PASSWORD=postgres
+      - POSTGRESQL_DATABASE=practicum
+    ports:
+      - '5432:5432'
+
+  pgadmin:
+    image: 'dpage/pgadmin4:latest'
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=user@user.ru
+      - PGADMIN_DEFAULT_PASSWORD=user 
+    ports:
+      - '5050:80'
+    depends_on:
+      - postgres
+

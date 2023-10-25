@@ -16,6 +16,41 @@ import (
 	"github.com/sergeizaitcev/metrics/internal/storage/mocks"
 )
 
+func TestHandlers_ping(t *testing.T) {
+	testCases := []struct {
+		name      string
+		mockError error
+		wantCode  int
+	}{
+		{
+			name:      "ok",
+			mockError: nil,
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "error",
+			mockError: errors.New("error"),
+			wantCode:  http.StatusInternalServerError,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			storage := mocks.NewMockStorage()
+			storage.On("Ping", mock.Anything).Return(tc.mockError)
+
+			handler := handlers.New(storage)
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+
+			handler.ServeHTTP(rec, req)
+
+			require.Equal(t, tc.wantCode, rec.Code)
+		})
+	}
+}
+
 func TestHandlers_all(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -45,7 +80,7 @@ func TestHandlers_all(t *testing.T) {
 			storage := mocks.NewMockStorage()
 			storage.On("GetAll", mock.Anything).Return(tc.mockMetrics, tc.mockError)
 
-			handler := handlers.New(metrics.NewMetrics(storage))
+			handler := handlers.New(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -112,19 +147,12 @@ func TestHandlers_update(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			if tc.metric.Kind() != metrics.KindUnknown {
-				switch tc.metric.Kind() {
-				case metrics.KindCounter:
-					storage.On("Add", mock.Anything, tc.metric).
-						Return(metrics.Metric{}, tc.mockError)
+			storage.On("Add", mock.Anything, tc.metric).
+				Return(metrics.Metric{}, tc.mockError).Maybe()
+			storage.On("Set", mock.Anything, tc.metric).
+				Return(metrics.Metric{}, tc.mockError).Maybe()
 
-				case metrics.KindGauge:
-					storage.On("Set", mock.Anything, tc.metric).
-						Return(metrics.Metric{}, tc.mockError)
-				}
-			}
-
-			handler := handlers.New(metrics.NewMetrics(storage))
+			handler := handlers.New(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, tc.path, nil)
@@ -196,18 +224,12 @@ func TestHandlers_updateV2(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			if tc.metric.Kind() != metrics.KindUnknown {
-				switch tc.metric.Kind() {
-				case metrics.KindCounter:
-					storage.On("Add", mock.Anything, tc.metric).
-						Return(tc.mockMetric, tc.mockError)
-				case metrics.KindGauge:
-					storage.On("Set", mock.Anything, tc.metric).
-						Return(tc.mockMetric, tc.mockError)
-				}
-			}
+			storage.On("Add", mock.Anything, tc.metric).
+				Return(tc.mockMetric, tc.mockError).Maybe()
+			storage.On("Set", mock.Anything, tc.metric).
+				Return(tc.mockMetric, tc.mockError).Maybe()
 
-			handler := handlers.New(metrics.NewMetrics(storage))
+			handler := handlers.New(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(tc.body))
@@ -224,6 +246,70 @@ func TestHandlers_updateV2(t *testing.T) {
 
 			require.Equal(t, tc.wantCode, rec.Code)
 			require.Equal(t, wantBody, rec.Body.String())
+		})
+	}
+}
+
+func TestHandlers_updateMany(t *testing.T) {
+	testCases := []struct {
+		name      string
+		metrics   []metrics.Metric
+		mockError error
+		noHeader  bool
+		body      string
+		wantCode  int
+	}{
+		{
+			name:     "unknown content type",
+			noHeader: true,
+			wantCode: http.StatusUnprocessableEntity,
+		},
+		{
+			name:     "empty body",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "invalid body",
+			body:     `{}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "metrics",
+			metrics: []metrics.Metric{
+				metrics.Counter("1", 1),
+				metrics.Gauge("2", 1),
+			},
+			body:     `[{"type":"counter","id":"1","delta":1},{"type":"gauge","id":"2","value":1}]`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "metrics don't save",
+			metrics: []metrics.Metric{
+				metrics.Counter("1", 1),
+				metrics.Gauge("2", 1),
+			},
+			mockError: errors.New("error"),
+			body:      `[{"type":"counter","id":"1","delta":1},{"type":"gauge","id":"2","value":1}]`,
+			wantCode:  http.StatusInternalServerError,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			storage := mocks.NewMockStorage()
+			storage.On("SaveMany", mock.Anything, tc.metrics).Return(tc.mockError).Maybe()
+
+			handler := handlers.New(storage)
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(tc.body))
+			if !tc.noHeader {
+				req.Header.Add("Content-Type", "application/json")
+			}
+
+			handler.ServeHTTP(rec, req)
+
+			require.Equal(t, tc.wantCode, rec.Code)
 		})
 	}
 }
@@ -292,11 +378,9 @@ func TestHandlers_get(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			if tc.metric != "" {
-				storage.On("Get", mock.Anything, tc.metric).Return(tc.mockMetric, tc.mockError)
-			}
+			storage.On("Get", mock.Anything, tc.metric).Return(tc.mockMetric, tc.mockError).Maybe()
 
-			handler := handlers.New(metrics.NewMetrics(storage))
+			handler := handlers.New(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
@@ -397,11 +481,9 @@ func TestHandlers_getV2(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			if tc.metric != "" {
-				storage.On("Get", mock.Anything, tc.metric).Return(tc.mockMetric, tc.mockError)
-			}
+			storage.On("Get", mock.Anything, tc.metric).Return(tc.mockMetric, tc.mockError).Maybe()
 
-			handler := handlers.New(metrics.NewMetrics(storage))
+			handler := handlers.New(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/value", strings.NewReader(tc.body))

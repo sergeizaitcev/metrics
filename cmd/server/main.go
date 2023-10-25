@@ -3,6 +3,7 @@ package main
 import (
 	"compress/flate"
 	"context"
+	"database/sql"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,12 +12,13 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/sergeizaitcev/metrics/internal/handlers"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
+	"github.com/sergeizaitcev/metrics/internal/storage/postgres"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 )
 
@@ -40,7 +42,13 @@ func run() error {
 	}
 	defer storage.Close()
 
-	metrics := metrics.NewMetrics(storage)
+	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	err = storage.Ping(ctx)
+	if err != nil {
+		return err
+	}
 
 	logger := zerolog.New(os.Stdout)
 	paramsFunc := func(p *middleware.Params) {
@@ -54,61 +62,35 @@ func run() error {
 	}
 
 	handler := handlers.New(
-		metrics,
+		storage,
 		middleware.Gzip(flate.BestCompression, "application/json", "text/html"),
 		middleware.Trace(paramsFunc),
 	)
 
-	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-
-	errg, errgCtx := errgroup.WithContext(ctx)
-	errg.Go(func() error {
-		return listenAndServe(errgCtx, handler)
-	})
-
-	if flagStoreInterval > 0 {
-		errg.Go(func() error {
-			return performEachTick(errgCtx, storage.Flush)
-		})
-	}
-
-	return errg.Wait()
+	return listenAndServe(ctx, handler)
 }
 
-type storager interface {
-	metrics.Storager
-	Flush() error
-	Close() error
-}
-
-func newStorage() (storager, error) {
-	opts := &local.StorageOpts{
-		Synced: flagStoreInterval == 0,
-	}
-
-	if flagRestore {
-		return local.Open(flagFileStoragePath, opts)
-	}
-
-	return local.New(flagFileStoragePath, opts)
-}
-
-func performEachTick(ctx context.Context, f func() error) error {
-	d := time.Duration(flagStoreInterval) * time.Second
-
-	ticker := time.NewTicker(d)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			if err := f(); err != nil {
-				return err
-			}
+func newStorage() (metrics.Storager, error) {
+	switch {
+	case flagDatabaseDSN != "":
+		db, err := sql.Open("postgres", flagDatabaseDSN)
+		if err != nil {
+			return nil, err
 		}
+
+		storage := postgres.New(db)
+
+		return storage, storage.Up(context.TODO())
+	case flagRestore:
+		opts := &local.StorageOpts{
+			StoreInterval: time.Duration(flagStoreInterval) * time.Second,
+		}
+		return local.Open(flagFileStoragePath, opts)
+	default:
+		opts := &local.StorageOpts{
+			StoreInterval: time.Duration(flagStoreInterval) * time.Second,
+		}
+		return local.New(flagFileStoragePath, opts)
 	}
 }
 

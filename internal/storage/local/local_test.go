@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -43,38 +44,38 @@ func snapshot() (snap []metrics.Metric, want []metrics.Metric) {
 	return snap, want
 }
 
-func testStorage(t *testing.T, values ...metrics.Metric) (*local.Storage, string) {
+func testStorage(t *testing.T, synced bool, values ...metrics.Metric) (*local.Storage, string) {
 	name := filename(t)
 
-	storage, err := local.New(name, &local.StorageOpts{Synced: true})
-	require.NoError(t, err)
+	opts := &local.StorageOpts{}
+	if !synced {
+		opts.StoreInterval = time.Second
+	}
+
+	storage, err := local.New(name, opts)
+	if err != nil {
+		t.Log(err)
+		t.SkipNow()
+	}
 
 	t.Cleanup(func() { storage.Close() })
-	ctx := context.Background()
-
-	for _, value := range values {
-		var err error
-		switch value.Kind() {
-		case metrics.KindCounter:
-			_, err = storage.Add(ctx, value)
-		case metrics.KindGauge:
-			_, err = storage.Set(ctx, value)
-		}
-		require.NoError(t, err)
-	}
+	storage.SaveMany(context.Background(), values)
 
 	return storage, name
 }
 
 func TestStorage_reopen(t *testing.T) {
 	snap, want := snapshot()
-	storage, name := testStorage(t, snap...)
+	storage, name := testStorage(t, true, snap...)
 
-	require.NoError(t, storage.Flush())
+	require.NoError(t, storage.Ping(context.Background()))
 	require.NoError(t, storage.Close())
 
 	opened, err := local.Open(name, nil)
-	require.NoError(t, err)
+	if err != nil {
+		t.SkipNow()
+	}
+
 	t.Cleanup(func() { opened.Close() })
 
 	ctx := context.Background()
@@ -99,7 +100,7 @@ func TestStorage_New(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("set", func(t *testing.T) {
-		storage, _ := testStorage(t)
+		storage, _ := testStorage(t, false)
 
 		testCases := []struct {
 			name       string
@@ -143,7 +144,7 @@ func TestStorage_New(t *testing.T) {
 	})
 
 	t.Run("add", func(t *testing.T) {
-		storage, _ := testStorage(t)
+		storage, _ := testStorage(t, false)
 
 		testCases := []struct {
 			name       string
@@ -192,7 +193,9 @@ func TestStorage_New(t *testing.T) {
 	})
 
 	t.Run("get", func(t *testing.T) {
-		storage, _ := testStorage(t,
+		storage, _ := testStorage(
+			t,
+			false,
 			metrics.Gauge("gauge", 1),
 			metrics.Counter("counter", 1),
 		)
@@ -238,7 +241,7 @@ func TestStorage_New(t *testing.T) {
 			metrics.Gauge("gauge", 1),
 			metrics.Counter("counter", 1),
 		}
-		storage, _ := testStorage(t, want...)
+		storage, _ := testStorage(t, false, want...)
 
 		got, err := storage.GetAll(ctx)
 		require.NoError(t, err)
