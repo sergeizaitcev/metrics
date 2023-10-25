@@ -15,8 +15,9 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
 
+	"github.com/sergeizaitcev/metrics/deployments/migrations"
 	"github.com/sergeizaitcev/metrics/internal/handlers"
-	"github.com/sergeizaitcev/metrics/internal/metrics"
+	"github.com/sergeizaitcev/metrics/internal/storage"
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
 	"github.com/sergeizaitcev/metrics/internal/storage/postgres"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
@@ -30,8 +31,6 @@ func main() {
 }
 
 func run() error {
-	baseCtx := context.Background()
-
 	if err := parseFlags(); err != nil {
 		return err
 	}
@@ -41,6 +40,8 @@ func run() error {
 		return err
 	}
 	defer storage.Close()
+
+	baseCtx := context.Background()
 
 	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -70,28 +71,28 @@ func run() error {
 	return listenAndServe(ctx, handler)
 }
 
-func newStorage() (metrics.Storager, error) {
-	switch {
-	case flagDatabaseDSN != "":
+func newStorage() (storage.Storager, error) {
+	if flagDatabaseDSN != "" {
 		db, err := sql.Open("postgres", flagDatabaseDSN)
 		if err != nil {
 			return nil, err
 		}
 
-		storage := postgres.New(db)
+		err = migrations.Up(context.TODO(), db)
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
 
-		return storage, storage.Up(context.TODO())
-	case flagRestore:
-		opts := &local.StorageOpts{
-			StoreInterval: time.Duration(flagStoreInterval) * time.Second,
-		}
-		return local.Open(flagFileStoragePath, opts)
-	default:
-		opts := &local.StorageOpts{
-			StoreInterval: time.Duration(flagStoreInterval) * time.Second,
-		}
-		return local.New(flagFileStoragePath, opts)
+		return postgres.New(db), nil
 	}
+
+	opts := &local.StorageOpts{
+		StoreInterval: time.Duration(flagStoreInterval) * time.Second,
+		Restore:       flagRestore,
+	}
+
+	return local.New(flagFileStoragePath, opts)
 }
 
 func listenAndServe(ctx context.Context, handler http.Handler) error {

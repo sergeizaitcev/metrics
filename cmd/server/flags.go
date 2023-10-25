@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"flag"
-	"fmt"
 	"net"
 	"os"
 	"strconv"
@@ -11,40 +10,43 @@ import (
 
 var (
 	flagAddress         string
-	flagStoreInterval   int64
-	flagFileStoragePath string
-	flagRestore         bool
 	flagDatabaseDSN     string
+	flagFileStoragePath string
+	flagStoreInterval   int64
+	flagRestore         bool
 )
 
-func init() {
-	flag.StringVar(&flagAddress, "a", "localhost:8080", "server address")
-	flag.Int64Var(&flagStoreInterval, "i", 300, "store interval in seconds")
-	flag.StringVar(&flagFileStoragePath, "f", "/tmp/metrics-db.json", "file path storage")
-	flag.BoolVar(&flagRestore, "r", true, "restore")
-	flag.StringVar(&flagDatabaseDSN, "d", "", "database dsn")
-}
+func parseFlags() error {
+	flags := flag.NewFlagSet("server", flag.ExitOnError)
 
-func parseFlags() (err error) {
-	defer func() {
-		if e := recover(); e != nil {
-			err = fmt.Errorf("%s", e)
-		}
-	}()
+	flags.StringVar(&flagAddress, "a", "localhost:8080", "server address")
+	flags.StringVar(&flagDatabaseDSN, "d", "", "database dsn")
+	flags.StringVar(&flagFileStoragePath, "f", "/tmp/metrics-db.wal", "file path storage")
+	flags.Int64Var(&flagStoreInterval, "i", 300, "store interval in seconds")
+	flags.BoolVar(&flagRestore, "r", true, "restore")
 
-	err = flag.CommandLine.Parse(os.Args[1:])
+	err := flags.Parse(os.Args[1:])
 	if err != nil {
-		return err
+		flags.Usage()
 	}
 
 	addr := os.Getenv("ADDRESS")
 	if addr != "" {
 		flagAddress = addr
 	}
-
 	_, _, err = net.SplitHostPort(flagAddress)
 	if err != nil {
 		return err
+	}
+
+	databaseDSN := os.Getenv("DATABASE_DSN")
+	if databaseDSN != "" {
+		flagDatabaseDSN = databaseDSN
+	}
+
+	fileStoragePath := os.Getenv("FILE_STORAGE_PATH")
+	if fileStoragePath != "" {
+		flagFileStoragePath = fileStoragePath
 	}
 
 	storeInterval := os.Getenv("STORE_INTERVAL")
@@ -57,16 +59,6 @@ func parseFlags() (err error) {
 	}
 	if flagStoreInterval < 0 {
 		return errors.New("store internval must be is greater or equal than zero")
-	}
-
-	databaseDSN := os.Getenv("DATABASE_DSN")
-	if databaseDSN != "" {
-		flagDatabaseDSN = databaseDSN
-	}
-
-	fileStoragePath := os.Getenv("FILE_STORAGE_PATH")
-	if fileStoragePath != "" {
-		flagFileStoragePath = fileStoragePath
 	}
 
 	restore := os.Getenv("RESTORE")

@@ -147,10 +147,8 @@ func TestHandlers_update(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			storage.On("Add", mock.Anything, tc.metric).
-				Return(metrics.Metric{}, tc.mockError).Maybe()
-			storage.On("Set", mock.Anything, tc.metric).
-				Return(metrics.Metric{}, tc.mockError).Maybe()
+			storage.On("Save", mock.Anything, []metrics.Metric{tc.metric}).
+				Return(([]metrics.Metric)(nil), tc.mockError).Maybe()
 
 			handler := handlers.New(storage)
 
@@ -224,10 +222,8 @@ func TestHandlers_updateV2(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			storage.On("Add", mock.Anything, tc.metric).
-				Return(tc.mockMetric, tc.mockError).Maybe()
-			storage.On("Set", mock.Anything, tc.metric).
-				Return(tc.mockMetric, tc.mockError).Maybe()
+			storage.On("Save", mock.Anything, []metrics.Metric{tc.metric}).
+				Return([]metrics.Metric{tc.mockMetric}, tc.mockError).Maybe()
 
 			handler := handlers.New(storage)
 
@@ -250,7 +246,7 @@ func TestHandlers_updateV2(t *testing.T) {
 	}
 }
 
-func TestHandlers_updateMany(t *testing.T) {
+func TestHandlers_updateV3(t *testing.T) {
 	testCases := []struct {
 		name      string
 		metrics   []metrics.Metric
@@ -297,7 +293,9 @@ func TestHandlers_updateMany(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			storage := mocks.NewMockStorage()
-			storage.On("SaveMany", mock.Anything, tc.metrics).Return(tc.mockError).Maybe()
+			storage.On("Save", mock.Anything, tc.metrics).
+				Return(([]metrics.Metric)(nil), tc.mockError).
+				Maybe()
 
 			handler := handlers.New(storage)
 

@@ -1,7 +1,6 @@
 package local_test
 
 import (
-	"context"
 	"os"
 	"testing"
 	"time"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
+	"github.com/sergeizaitcev/metrics/pkg/testutil"
 )
 
 func filename(t *testing.T) string {
@@ -49,7 +49,7 @@ func testStorage(t *testing.T, synced bool, values ...metrics.Metric) (*local.St
 
 	opts := &local.StorageOpts{}
 	if !synced {
-		opts.StoreInterval = time.Second
+		opts.StoreInterval = 50 * time.Millisecond
 	}
 
 	storage, err := local.New(name, opts)
@@ -58,8 +58,10 @@ func testStorage(t *testing.T, synced bool, values ...metrics.Metric) (*local.St
 		t.SkipNow()
 	}
 
+	ctx := testutil.Context(t)
+
 	t.Cleanup(func() { storage.Close() })
-	storage.SaveMany(context.Background(), values)
+	storage.Save(ctx, values...)
 
 	return storage, name
 }
@@ -68,17 +70,17 @@ func TestStorage_reopen(t *testing.T) {
 	snap, want := snapshot()
 	storage, name := testStorage(t, true, snap...)
 
-	require.NoError(t, storage.Ping(context.Background()))
+	ctx := testutil.Context(t)
+
+	require.NoError(t, storage.Ping(ctx))
 	require.NoError(t, storage.Close())
 
-	opened, err := local.Open(name, nil)
+	opened, err := local.New(name, &local.StorageOpts{Restore: true})
 	if err != nil {
 		t.SkipNow()
 	}
 
 	t.Cleanup(func() { opened.Close() })
-
-	ctx := context.Background()
 
 	for _, metric := range want {
 		got, err := opened.Get(ctx, metric.Name())
@@ -96,97 +98,61 @@ func TestStorage_reopen(t *testing.T) {
 	require.NoError(t, opened.Close())
 }
 
-func TestStorage_New(t *testing.T) {
-	ctx := context.Background()
+func TestStorage(t *testing.T) {
+	ctx := testutil.Context(t)
 
-	t.Run("set", func(t *testing.T) {
+	t.Run("save", func(t *testing.T) {
 		storage, _ := testStorage(t, false)
 
 		testCases := []struct {
-			name       string
-			metric     metrics.Metric
-			wantMetric metrics.Metric
-			wantError  bool
+			name        string
+			metrics     []metrics.Metric
+			wantMetrics []metrics.Metric
+			wantError   bool
 		}{
 			{
-				name:       "set",
-				metric:     metrics.Gauge("gauge", 1),
-				wantMetric: metrics.Metric{},
+				name:      "empty",
+				metrics:   nil,
+				wantError: true,
 			},
 			{
-				name:       "re-set",
-				metric:     metrics.Gauge("gauge", 2),
-				wantMetric: metrics.Gauge("gauge", 1),
+				name:        "set",
+				metrics:     []metrics.Metric{metrics.Gauge("gauge", 1), {}},
+				wantMetrics: []metrics.Metric{{}, {}},
+			},
+			{
+				name:        "re-set",
+				metrics:     []metrics.Metric{{}, metrics.Gauge("gauge", 2)},
+				wantMetrics: []metrics.Metric{{}, metrics.Gauge("gauge", 1)},
 			},
 			{
 				name:      "unknown kind",
-				metric:    metrics.Metric{},
+				metrics:   []metrics.Metric{metrics.Counter("gauge", 1)},
 				wantError: true,
 			},
 			{
-				name:      "not equal kinds",
-				metric:    metrics.Counter("gauge", 1),
-				wantError: true,
+				name:        "add",
+				metrics:     []metrics.Metric{metrics.Counter("counter", 1), {}},
+				wantMetrics: []metrics.Metric{metrics.Counter("counter", 1), {}},
+			},
+			{
+				name:        "add_2",
+				metrics:     []metrics.Metric{{}, metrics.Counter("counter", 1)},
+				wantMetrics: []metrics.Metric{{}, metrics.Counter("counter", 2)},
 			},
 		}
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				got, err := storage.Set(ctx, tc.metric)
+				got, err := storage.Save(ctx, tc.metrics...)
 				if tc.wantError {
 					require.Error(t, err)
 				} else {
 					require.NoError(t, err)
-					require.True(t, tc.wantMetric.Equal(got))
-				}
-			})
-		}
-	})
-
-	t.Run("add", func(t *testing.T) {
-		storage, _ := testStorage(t, false)
-
-		testCases := []struct {
-			name       string
-			metric     metrics.Metric
-			wantMetric metrics.Metric
-			wantError  bool
-		}{
-			{
-				name:      "unknown kind",
-				metric:    metrics.Metric{},
-				wantError: true,
-			},
-			{
-				name:       "counter_first",
-				metric:     metrics.Counter("counter", 1),
-				wantMetric: metrics.Counter("counter", 1),
-			},
-			{
-				name:      "not equal kinds",
-				metric:    metrics.Gauge("counter", 1),
-				wantError: true,
-			},
-			{
-				name:       "counter_second",
-				metric:     metrics.Counter("counter", 1),
-				wantMetric: metrics.Counter("counter", 2),
-			},
-			{
-				name:       "gauge_add",
-				metric:     metrics.Gauge("gauge", 1),
-				wantMetric: metrics.Gauge("gauge", 1),
-			},
-		}
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				got, err := storage.Add(ctx, tc.metric)
-				if tc.wantError {
-					require.Error(t, err)
-				} else {
-					require.NoError(t, err)
-					require.True(t, tc.wantMetric.Equal(got))
+					require.Len(t, got, len(tc.wantMetrics))
+					for i, want := range tc.wantMetrics {
+						require.True(t, want.Equal(got[i]))
+					}
 				}
 			})
 		}

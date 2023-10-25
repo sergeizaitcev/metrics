@@ -35,8 +35,8 @@ func (s memstorage) add(value metrics.Metric) metrics.Metric {
 	return value
 }
 
-// set устанавливает новое значение метрики и возвращает предыдущее.
-func (s memstorage) set(value metrics.Metric) metrics.Metric {
+// update обновляет значение метрики и возвращает предыдущее.
+func (s memstorage) update(value metrics.Metric) metrics.Metric {
 	oldValue := s[value.Name()]
 	s[value.Name()] = value
 	return oldValue

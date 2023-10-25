@@ -24,13 +24,13 @@ type operation uint8
 const (
 	operationUnknown operation = iota
 	operationAdd
-	operationSet
+	operationUpdate
 )
 
 var operations = []operation{
 	operationUnknown,
 	operationAdd,
-	operationSet,
+	operationUpdate,
 }
 
 func validate(op operation) error {
@@ -113,7 +113,7 @@ func (r *record) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// wal определяет файловое хранилище метрик.
+// wal определяет файл для упреждающей журнализации.
 type wal struct {
 	buf bytes.Buffer
 	fd  *os.File

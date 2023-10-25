@@ -15,18 +15,15 @@ import (
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 )
 
-// New возвращает новый обработчик HTTP-запросов, используйющий сервис для
-// работы с метриками.
-func New(storage metrics.Storager, middlewares ...middleware.Middleware) http.Handler {
-	m := metrics.NewMetrics(storage)
-
+// New возвращает новый обработчик HTTP-запросов.
+func New(s storage.Storager, middlewares ...middleware.Middleware) http.Handler {
 	router := httprouter.New()
-	router.GET("/ping", ping(storage))
+	router.GET("/ping", ping(s))
 
 	for _, h := range []struct {
 		method string
 		path   string
-		handle func(*metrics.Metrics) httprouter.Handle
+		handle func(storage.Storager) httprouter.Handle
 	}{
 		{
 			method: http.MethodGet,
@@ -56,17 +53,17 @@ func New(storage metrics.Storager, middlewares ...middleware.Middleware) http.Ha
 		{
 			method: http.MethodPost,
 			path:   "/updates/",
-			handle: updateMany,
+			handle: updateV3,
 		},
 	} {
-		handle := middleware.Use(h.handle(m), middlewares...)
+		handle := middleware.Use(h.handle(s), middlewares...)
 		router.Handle(h.method, h.path, handle)
 	}
 
 	return router
 }
 
-func ping(s metrics.Storager) httprouter.Handle {
+func ping(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctx := r.Context()
 		if err := s.Ping(ctx); err != nil {
@@ -75,11 +72,11 @@ func ping(s metrics.Storager) httprouter.Handle {
 	}
 }
 
-func all(m *metrics.Metrics) httprouter.Handle {
+func all(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctx := r.Context()
 
-		values, err := m.All(ctx)
+		values, err := s.GetAll(ctx)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -96,7 +93,7 @@ func all(m *metrics.Metrics) httprouter.Handle {
 }
 
 // Deprecated: используется для обратной совместимости.
-func get(m *metrics.Metrics) httprouter.Handle {
+func get(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		kind := metrics.ParseKind(p.ByName("metric"))
 		if kind == metrics.KindUnknown {
@@ -106,7 +103,7 @@ func get(m *metrics.Metrics) httprouter.Handle {
 
 		ctx := r.Context()
 
-		metric, err := m.Lookup(ctx, p.ByName("name"))
+		metric, err := s.Get(ctx, p.ByName("name"))
 		if errors.Is(err, storage.ErrNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -124,7 +121,7 @@ func get(m *metrics.Metrics) httprouter.Handle {
 	}
 }
 
-func getV2(m *metrics.Metrics) httprouter.Handle {
+func getV2(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctype := r.Header.Get("Content-Type")
 		if !strings.Contains(ctype, "application/json") {
@@ -142,7 +139,7 @@ func getV2(m *metrics.Metrics) httprouter.Handle {
 
 		ctx := r.Context()
 
-		actual, err := m.Lookup(ctx, metric.Name())
+		actual, err := s.Get(ctx, metric.Name())
 		if errors.Is(err, storage.ErrNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -165,7 +162,7 @@ func getV2(m *metrics.Metrics) httprouter.Handle {
 }
 
 // Deprecated: используется для обратной совместимости.
-func update(m *metrics.Metrics) httprouter.Handle {
+func update(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		kind := metrics.ParseKind(p.ByName("metric"))
 		if kind == metrics.KindUnknown {
@@ -197,7 +194,7 @@ func update(m *metrics.Metrics) httprouter.Handle {
 
 		ctx := r.Context()
 
-		_, err := m.Save(ctx, metric)
+		_, err := s.Save(ctx, metric)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -207,7 +204,8 @@ func update(m *metrics.Metrics) httprouter.Handle {
 	}
 }
 
-func updateV2(m *metrics.Metrics) httprouter.Handle {
+// Deprecated: используется для обратной совместимости.
+func updateV2(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctype := r.Header.Get("Content-Type")
 		if !strings.Contains(ctype, "application/json") {
@@ -225,7 +223,7 @@ func updateV2(m *metrics.Metrics) httprouter.Handle {
 
 		ctx := r.Context()
 
-		actual, err := m.Save(ctx, metric)
+		actual, err := s.Save(ctx, metric)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -235,11 +233,13 @@ func updateV2(m *metrics.Metrics) httprouter.Handle {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.WriteHeader(http.StatusOK)
 
-		json.NewEncoder(w).Encode(&actual)
+		if len(actual) > 0 {
+			json.NewEncoder(w).Encode(&actual[0])
+		}
 	}
 }
 
-func updateMany(m *metrics.Metrics) httprouter.Handle {
+func updateV3(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctype := r.Header.Get("Content-Type")
 		if !strings.Contains(ctype, "application/json") {
@@ -257,7 +257,7 @@ func updateMany(m *metrics.Metrics) httprouter.Handle {
 
 		ctx := r.Context()
 
-		err = m.SaveMany(ctx, values)
+		_, err = s.Save(ctx, values...)
 		if err != nil {
 			fmt.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)

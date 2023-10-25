@@ -4,84 +4,71 @@ import (
 	"context"
 	"database/sql"
 	"testing"
-	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
+	"github.com/sergeizaitcev/metrics/deployments/migrations"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/internal/storage/postgres"
+	"github.com/sergeizaitcev/metrics/pkg/testutil"
 )
 
-func testContext(t *testing.T) context.Context {
-	deadline, ok := t.Deadline()
-	if !ok {
-		deadline = time.Now().Add(15 * time.Second)
-	}
-
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
-	t.Cleanup(cancel)
-
-	return ctx
-}
-
 func testStorage(t *testing.T) (*postgres.Storage, context.Context) {
-	const (
-		dsn = "postgres://postgres:postgres@localhost:5432/practicum?sslmode=disable"
-	)
-
 	t.Helper()
+
+	const dsn = "postgres://postgres:postgres@localhost:5432/practicum?sslmode=disable"
 
 	db, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
 
-	ctx := testContext(t)
-
 	storage := postgres.New(db)
 	t.Cleanup(func() { storage.Close() })
 
-	err = storage.Ping(ctx)
-	if err != nil {
+	ctx := testutil.Context(t)
+
+	if err = storage.Ping(ctx); err != nil {
 		t.Log(err)
 		t.SkipNow()
 	}
 
-	require.NoError(t, storage.Up(ctx))
-	t.Cleanup(func() { storage.Down(ctx) })
+	require.NoError(t, migrations.Up(ctx, db))
+	t.Cleanup(func() { migrations.Down(ctx, db) })
 
 	return storage, ctx
 }
 
 func TestStorage(t *testing.T) {
-	t.Run("add", func(t *testing.T) {
+	t.Run("save", func(t *testing.T) {
 		testCases := []struct {
-			name       string
-			metric     metrics.Metric
-			wantMetric metrics.Metric
-			wantError  bool
+			name        string
+			metrics     []metrics.Metric
+			wantMetrics []metrics.Metric
+			wantError   bool
 		}{
 			{
 				name:      "empty",
 				wantError: true,
 			},
 			{
-				name:      "gauge",
-				metric:    metrics.Gauge("gauge", 1),
-				wantError: true,
+				name:        "first insert",
+				metrics:     []metrics.Metric{metrics.Counter("counter", 1), {}},
+				wantMetrics: []metrics.Metric{metrics.Counter("counter", 1), {}},
 			},
 			{
-				name:       "insert",
-				metric:     metrics.Counter("counter", 1),
-				wantMetric: metrics.Counter("counter", 1),
+				name:        "second insert",
+				metrics:     []metrics.Metric{{}, metrics.Counter("counter", 1)},
+				wantMetrics: []metrics.Metric{{}, metrics.Counter("counter", 2)},
 			},
 			{
-				name:       "first update",
-				metric:     metrics.Counter("counter", 1),
-				wantMetric: metrics.Counter("counter", 2),
+				name:        "first update",
+				metrics:     []metrics.Metric{metrics.Gauge("gauge", 1)},
+				wantMetrics: []metrics.Metric{{}},
 			},
 			{
-				name:       "second update",
-				metric:     metrics.Counter("counter", 2),
-				wantMetric: metrics.Counter("counter", 4),
+				name:        "second update",
+				metrics:     []metrics.Metric{metrics.Gauge("gauge", 2)},
+				wantMetrics: []metrics.Metric{metrics.Gauge("gauge", 1)},
 			},
 		}
 
@@ -89,59 +76,15 @@ func TestStorage(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				got, err := storage.Add(ctx, tc.metric)
+				got, err := storage.Save(ctx, tc.metrics...)
 				if tc.wantError {
 					require.Error(t, err)
 				} else {
 					require.NoError(t, err)
-					require.True(t, tc.wantMetric.Equal(got))
-				}
-			})
-		}
-	})
-
-	t.Run("set", func(t *testing.T) {
-		testCases := []struct {
-			name       string
-			metric     metrics.Metric
-			wantMetric metrics.Metric
-			wantError  bool
-		}{
-			{
-				name:      "empty",
-				wantError: true,
-			},
-			{
-				name:      "counter",
-				metric:    metrics.Counter("counter", 1),
-				wantError: true,
-			},
-			{
-				name:   "insert",
-				metric: metrics.Gauge("gauge", 1),
-			},
-			{
-				name:       "first update",
-				metric:     metrics.Gauge("gauge", 2),
-				wantMetric: metrics.Gauge("gauge", 1),
-			},
-			{
-				name:       "second update",
-				metric:     metrics.Gauge("gauge", 4),
-				wantMetric: metrics.Gauge("gauge", 2),
-			},
-		}
-
-		storage, ctx := testStorage(t)
-
-		for _, tc := range testCases {
-			t.Run(tc.name, func(t *testing.T) {
-				got, err := storage.Set(ctx, tc.metric)
-				if tc.wantError {
-					require.Error(t, err)
-				} else {
-					require.NoError(t, err)
-					require.True(t, tc.wantMetric.Equal(got))
+					require.Len(t, got, len(tc.wantMetrics))
+					for i, want := range tc.wantMetrics {
+						require.True(t, want.Equal(got[i]))
+					}
 				}
 			})
 		}
@@ -153,6 +96,11 @@ func TestStorage(t *testing.T) {
 			wantMetric metrics.Metric
 			wantError  bool
 		}{
+			{
+				name:       "not found",
+				wantMetric: metrics.Counter("invalid", 0),
+				wantError:  true,
+			},
 			{
 				name:       "counter",
 				wantMetric: metrics.Counter("counter", 1),
@@ -169,10 +117,10 @@ func TestStorage(t *testing.T) {
 
 		storage, ctx := testStorage(t)
 
-		err := storage.SaveMany(ctx, []metrics.Metric{
+		_, err := storage.Save(ctx,
 			metrics.Counter("counter", 1),
 			metrics.Gauge("gauge", 1),
-		})
+		)
 		require.NoError(t, err)
 
 		for _, tc := range testCases {
@@ -195,21 +143,19 @@ func TestStorage(t *testing.T) {
 			metrics.Gauge("gauge", 1),
 		}
 
-		for _, metric := range want {
-			var err error
-			switch metric.Kind() {
-			case metrics.KindCounter:
-				_, err = storage.Add(ctx, metric)
-			case metrics.KindGauge:
-				_, err = storage.Set(ctx, metric)
-			}
-			require.NoError(t, err)
-		}
+		_, err := storage.Save(ctx, want...)
+		require.NoError(t, err)
 
 		values, err := storage.GetAll(ctx)
 		require.NoError(t, err)
 
 		require.Len(t, values, len(want))
 		require.Equal(t, want, values)
+	})
+
+	t.Run("not_found", func(t *testing.T) {
+		storage, ctx := testStorage(t)
+		_, err := storage.GetAll(ctx)
+		require.Error(t, err)
 	})
 }
