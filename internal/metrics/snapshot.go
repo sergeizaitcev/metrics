@@ -1,25 +1,13 @@
 package metrics
 
 import (
-	"crypto/rand"
-	"encoding/binary"
-	"io"
-	mathrand "math/rand"
 	"runtime"
 	"sync/atomic"
+
+	"github.com/sergeizaitcev/metrics/pkg/randutil"
 )
 
 var snapCnt atomic.Int64
-
-var rnd = func() *mathrand.Rand {
-	buf := make([]byte, 8)
-	_, err := io.ReadFull(rand.Reader, buf)
-	if err != nil {
-		panic(err)
-	}
-	src := mathrand.NewSource(int64(binary.LittleEndian.Uint64(buf)))
-	return mathrand.New(src)
-}()
 
 // Snapshot возвращает снимок метрик всей системы.
 func Snapshot() []Metric {
@@ -53,7 +41,7 @@ func Snapshot() []Metric {
 		Gauge("OtherSys", float64(ms.OtherSys)),
 		Gauge("PauseTotalNs", float64(ms.PauseTotalNs)),
 		Counter("PollCount", snapCnt.Load()),
-		Gauge("RandomValue", rnd.Float64()),
+		Gauge("RandomValue", randutil.Float64()),
 		Gauge("StackInuse", float64(ms.StackInuse)),
 		Gauge("StackSys", float64(ms.StackSys)),
 		Gauge("Sys", float64(ms.Sys)),
