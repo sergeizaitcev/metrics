@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"fmt"
 	"runtime"
 	"sync/atomic"
 
@@ -19,11 +20,13 @@ func Snapshot() []Metric {
 
 	memstat, err := mem.VirtualMemory()
 	if err != nil {
+		err = fmt.Errorf("metrics: collecting memory statistics: %w", err)
 		panic(err)
 	}
 
 	cpustat, err := cpu.Percent(0, false)
 	if err != nil {
+		err = fmt.Errorf("metrics: collecting cpu statistics: %w", err)
 		panic(err)
 	}
 

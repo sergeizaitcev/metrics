@@ -3,24 +3,20 @@ package main
 import (
 	"compress/flate"
 	"context"
-	"database/sql"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	_ "github.com/lib/pq"
-	"github.com/rs/zerolog"
-
-	"github.com/sergeizaitcev/metrics/deployments/migrations"
 	"github.com/sergeizaitcev/metrics/internal/handlers"
+	"github.com/sergeizaitcev/metrics/internal/logging"
 	"github.com/sergeizaitcev/metrics/internal/storage"
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
 	"github.com/sergeizaitcev/metrics/internal/storage/postgres"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
+	"github.com/sergeizaitcev/metrics/pkg/server"
 	"github.com/sergeizaitcev/metrics/pkg/sign"
 )
 
@@ -33,45 +29,51 @@ func main() {
 
 func run() error {
 	if err := parseFlags(); err != nil {
-		return err
+		return fmt.Errorf("parse flags: %w", err)
 	}
 
 	storage, err := newStorage()
 	if err != nil {
-		return err
+		return fmt.Errorf("creating a storage: %w", err)
 	}
 	defer storage.Close()
 
-	baseCtx := context.Background()
-
-	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	err = storage.Ping(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("ping to a storage: %w", err)
 	}
 
-	middlewares := newMiddlewares()
-	handler := handlers.New(storage, middlewares...)
+	// NOTE: если выбран postgres в качестве хранилища метрик,
+	// то накатывается миграция.
+	if pg, ok := storage.(*postgres.Storage); ok {
+		err = pg.MigrateUp(ctx)
+		if err != nil {
+			return fmt.Errorf("failed migration: %w", err)
+		}
+	}
 
-	return listenAndServe(ctx, handler)
+	lis, err := net.Listen("tcp", flagAddress)
+	if err != nil {
+		return fmt.Errorf("listening to %s: %w", flagAddress, err)
+	}
+	defer lis.Close()
+
+	opts := &server.ServerOpts{
+		Listener: lis,
+	}
+
+	handler := handlers.New(storage, newMiddlewares()...)
+	s := server.New(handler, opts)
+
+	return s.ListenAndServe(ctx)
 }
 
 func newStorage() (storage.Storager, error) {
 	if flagDatabaseDSN != "" {
-		db, err := sql.Open("postgres", flagDatabaseDSN)
-		if err != nil {
-			return nil, err
-		}
-
-		err = migrations.Up(context.TODO(), db)
-		if err != nil {
-			db.Close()
-			return nil, err
-		}
-
-		return postgres.New(db), nil
+		return postgres.New(flagDatabaseDSN)
 	}
 
 	opts := &local.StorageOpts{
@@ -95,45 +97,26 @@ func newMiddlewares() []middleware.Middleware {
 		middleware.Gzip(flate.BestCompression, "application/json", "text/html"),
 	)
 
-	logger := zerolog.New(os.Stdout)
+	logger := logging.New(os.Stdout, logging.LevelInfo)
+
 	paramsFunc := func(p *middleware.Params) {
-		entry := logger.Info()
-		entry.Str("method", p.Method)
-		entry.Str("uri", p.URI)
-		entry.Int("statusCode", p.StatusCode)
-		entry.Dur("duration", p.Duration)
-		entry.Int("size", len(p.Body))
-		entry.Send()
+		if p.Error != nil {
+			logger.Log(logging.LevelError, p.Error.Error(),
+				"method", p.Method,
+				"uri", p.URI,
+				"status_code", p.StatusCode,
+			)
+			return
+		}
+		logger.Log(logging.LevelInfo, "",
+			"method", p.Method,
+			"uri", p.URI,
+			"status_code", p.StatusCode,
+			"duration", p.Duration,
+			"size", len(p.Body),
+		)
 	}
 	middlewares = append(middlewares, middleware.Trace(paramsFunc))
 
 	return middlewares
-}
-
-func listenAndServe(ctx context.Context, handler http.Handler) error {
-	server := http.Server{
-		Addr:         flagAddress,
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
-		BaseContext:  func(net.Listener) context.Context { return ctx },
-	}
-
-	errc := make(chan error)
-	go func() { errc <- server.ListenAndServe() }()
-
-	select {
-	case <-ctx.Done():
-	case err := <-errc:
-		return err
-	}
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer shutdownCancel()
-
-	err := server.Shutdown(shutdownCtx)
-	<-errc
-
-	return err
 }

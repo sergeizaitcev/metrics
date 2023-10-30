@@ -2,13 +2,10 @@ package postgres_test
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 
-	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sergeizaitcev/metrics/deployments/migrations"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/internal/storage/postgres"
 	"github.com/sergeizaitcev/metrics/pkg/testutil"
@@ -19,10 +16,8 @@ func testStorage(t *testing.T) (*postgres.Storage, context.Context) {
 
 	const dsn = "postgres://postgres:postgres@localhost:5432/practicum?sslmode=disable"
 
-	db, err := sql.Open("postgres", dsn)
+	storage, err := postgres.New(dsn)
 	require.NoError(t, err)
-
-	storage := postgres.New(db)
 	t.Cleanup(func() { storage.Close() })
 
 	ctx := testutil.Context(t)
@@ -32,8 +27,8 @@ func testStorage(t *testing.T) (*postgres.Storage, context.Context) {
 		t.SkipNow()
 	}
 
-	require.NoError(t, migrations.Up(ctx, db))
-	t.Cleanup(func() { migrations.Down(ctx, db) })
+	require.NoError(t, storage.MigrateUp(ctx))
+	t.Cleanup(func() { storage.MigrateDown(ctx) })
 
 	return storage, ctx
 }

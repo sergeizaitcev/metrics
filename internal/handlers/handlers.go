@@ -15,6 +15,12 @@ import (
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 )
 
+var (
+	errMetricEmpty            = errors.New("metric is empty")
+	errMetricUnknown          = errors.New("metric kind is unknown")
+	errContentTypeUnsupported = errors.New("content type is unsupported")
+)
+
 // New возвращает новый обработчик HTTP-запросов.
 func New(s storage.Storager, middlewares ...middleware.Middleware) http.Handler {
 	router := &httprouter.Router{
@@ -46,7 +52,8 @@ func New(s storage.Storager, middlewares ...middleware.Middleware) http.Handler 
 		},
 		{
 			method: http.MethodPost,
-			path:   "/value/",
+			path:   "/value/", // NOTE: в iter14 проверяется редирект.
+
 			handle: getV2,
 		},
 		{
@@ -61,7 +68,7 @@ func New(s storage.Storager, middlewares ...middleware.Middleware) http.Handler 
 		},
 		{
 			method: http.MethodPost,
-			path:   "/update/",
+			path:   "/update/", // NOTE: в iter14 проверяется редирект.
 			handle: updateV2,
 		},
 		{
@@ -92,7 +99,7 @@ func all(s storage.Storager) httprouter.Handle {
 
 		values, err := s.GetAll(ctx)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+			sendError(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -111,7 +118,7 @@ func get(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		kind := metrics.ParseKind(p.ByName("metric"))
 		if kind == metrics.KindUnknown {
-			w.WriteHeader(http.StatusBadRequest)
+			sendError(w, http.StatusBadRequest, errMetricUnknown)
 			return
 		}
 
@@ -123,7 +130,7 @@ func get(s storage.Storager) httprouter.Handle {
 			return
 		}
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+			sendError(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -139,15 +146,19 @@ func getV2(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctype := r.Header.Get("Content-Type")
 		if !strings.Contains(ctype, "application/json") {
-			w.WriteHeader(http.StatusUnprocessableEntity)
+			sendError(w, http.StatusUnprocessableEntity, errContentTypeUnsupported)
 			return
 		}
 
 		var metric metrics.Metric
 
 		err := json.NewDecoder(r.Body).Decode(&metric)
-		if err != nil || metric.IsEmpty() {
-			w.WriteHeader(http.StatusBadRequest)
+		if err != nil {
+			sendError(w, http.StatusBadRequest, err)
+			return
+		}
+		if metric.IsEmpty() {
+			sendError(w, http.StatusBadRequest, errMetricEmpty)
 			return
 		}
 
@@ -159,7 +170,7 @@ func getV2(s storage.Storager) httprouter.Handle {
 			return
 		}
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+			sendError(w, http.StatusInternalServerError, err)
 			return
 		}
 		if metric.Kind() != actual.Kind() {
@@ -180,7 +191,7 @@ func update(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		kind := metrics.ParseKind(p.ByName("metric"))
 		if kind == metrics.KindUnknown {
-			w.WriteHeader(http.StatusBadRequest)
+			sendError(w, http.StatusBadRequest, errMetricUnknown)
 			return
 		}
 
@@ -193,14 +204,14 @@ func update(s storage.Storager) httprouter.Handle {
 		case metrics.KindCounter:
 			v, err := strconv.ParseInt(value, 10, 64)
 			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
+				sendError(w, http.StatusBadRequest, fmt.Errorf("parse int: %s", err))
 				return
 			}
 			metric = metrics.Counter(name, v)
 		case metrics.KindGauge:
 			v, err := strconv.ParseFloat(value, 64)
 			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
+				sendError(w, http.StatusBadRequest, fmt.Errorf("parse float: %s", err))
 				return
 			}
 			metric = metrics.Gauge(name, v)
@@ -210,11 +221,8 @@ func update(s storage.Storager) httprouter.Handle {
 
 		_, err := s.Save(ctx, metric)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+			sendError(w, http.StatusInternalServerError, err)
 		}
-
-		w.WriteHeader(http.StatusOK)
 	}
 }
 
@@ -223,15 +231,19 @@ func updateV2(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctype := r.Header.Get("Content-Type")
 		if !strings.Contains(ctype, "application/json") {
-			w.WriteHeader(http.StatusUnprocessableEntity)
+			sendError(w, http.StatusUnprocessableEntity, errContentTypeUnsupported)
 			return
 		}
 
 		var metric metrics.Metric
 
 		err := json.NewDecoder(r.Body).Decode(&metric)
-		if err != nil || metric.IsEmpty() {
-			w.WriteHeader(http.StatusBadRequest)
+		if err != nil {
+			sendError(w, http.StatusBadRequest, err)
+			return
+		}
+		if metric.IsEmpty() {
+			sendError(w, http.StatusBadRequest, errMetricEmpty)
 			return
 		}
 
@@ -239,7 +251,7 @@ func updateV2(s storage.Storager) httprouter.Handle {
 
 		actual, err := s.Save(ctx, metric)
 		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+			sendError(w, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -257,15 +269,19 @@ func updateV3(s storage.Storager) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctype := r.Header.Get("Content-Type")
 		if !strings.Contains(ctype, "application/json") {
-			w.WriteHeader(http.StatusUnprocessableEntity)
+			sendError(w, http.StatusUnprocessableEntity, errContentTypeUnsupported)
 			return
 		}
 
 		var values []metrics.Metric
 
 		err := json.NewDecoder(r.Body).Decode(&values)
-		if err != nil || len(values) == 0 {
-			w.WriteHeader(http.StatusBadRequest)
+		if err != nil {
+			sendError(w, http.StatusBadRequest, err)
+			return
+		}
+		if len(values) == 0 {
+			sendError(w, http.StatusBadRequest, errMetricEmpty)
 			return
 		}
 
@@ -273,10 +289,12 @@ func updateV3(s storage.Storager) httprouter.Handle {
 
 		_, err = s.Save(ctx, values...)
 		if err != nil {
-			fmt.Println(err)
-			w.WriteHeader(http.StatusInternalServerError)
+			sendError(w, http.StatusInternalServerError, err)
 		}
-
-		w.WriteHeader(http.StatusOK)
 	}
+}
+
+func sendError(w http.ResponseWriter, code int, err error) {
+	middleware.WriteError(w, err)
+	w.WriteHeader(code)
 }

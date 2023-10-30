@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"net"
 	"os"
 	"strconv"
@@ -38,7 +39,7 @@ func parseFlags() error {
 	}
 	_, _, err = net.SplitHostPort(flagAddress)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid address: %w", err)
 	}
 
 	databaseDSN := os.Getenv("DATABASE_DSN")

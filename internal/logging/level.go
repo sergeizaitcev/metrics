@@ -1,0 +1,29 @@
+package logging
+
+import "fmt"
+
+// Level определяет уровень логирования.
+type Level int
+
+const (
+	LevelDebug Level = -4
+	LevelInfo  Level = 0
+	LevelError Level = 4
+)
+
+func (l Level) String() string {
+	str := func(base string, val Level) string {
+		if val == 0 {
+			return base
+		}
+		return fmt.Sprintf("%s%+d", base, val)
+	}
+	switch {
+	case l < LevelInfo:
+		return str("debug", l-LevelDebug)
+	case l < LevelError:
+		return str("info", l-LevelInfo)
+	default:
+		return str("error", l-LevelError)
+	}
+}

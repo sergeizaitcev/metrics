@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	_ "github.com/lib/pq"
+
+	"github.com/sergeizaitcev/metrics/deployments/migrations"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/internal/storage"
 )
@@ -18,8 +21,31 @@ type Storage struct {
 }
 
 // New возвращает новый экземпляр хранилища метрик в postgres.
-func New(db *sql.DB) *Storage {
-	return &Storage{db: db}
+func New(dsn string) (*Storage, error) {
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: connection refused: %w", err)
+	}
+
+	return &Storage{db: db}, nil
+}
+
+// MigrateUp запускает миграцию в БД.
+func (s *Storage) MigrateUp(ctx context.Context) error {
+	err := migrations.Up(ctx, s.db)
+	if err != nil {
+		return fmt.Errorf("postgres: migration up: %w", err)
+	}
+	return nil
+}
+
+// MigrateDown откатывает миграцию в БД.
+func (s *Storage) MigrateDown(ctx context.Context) error {
+	err := migrations.Down(ctx, s.db)
+	if err != nil {
+		return fmt.Errorf("postgres: migration down: %w", err)
+	}
+	return nil
 }
 
 // Ping реализует интерфейс storage.Storager.

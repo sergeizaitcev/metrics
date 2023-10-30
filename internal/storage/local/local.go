@@ -30,7 +30,7 @@ var _ storage.Storager = (*Storage)(nil)
 type Storage struct {
 	metrics memstorage
 	wal     *wal
-	synced  bool
+	synced  bool // Индикатор синхронной записи.
 
 	sem chan struct{}
 
@@ -176,6 +176,8 @@ func (s *Storage) flushing(d time.Duration) {
 	for {
 		select {
 		case <-s.term:
+			// NOTE: дополнительного вызова flush не требуется,
+			// т.к. хранилище при закрытии выполняет flush.
 			close(s.singleflight)
 			return
 		case <-ticker.C:
@@ -203,6 +205,8 @@ func (s *Storage) Close() error {
 
 	s.wal.close()
 
+	// NOTE: если был запущен flushing в фоне, то Close будет ждать
+	// завершения flushing.
 	if s.term != nil {
 		close(s.term)
 	}
@@ -227,7 +231,7 @@ func (s *Storage) Save(ctx context.Context, values ...metrics.Metric) ([]metrics
 	defer s.unlock()
 
 	actuals := make([]metrics.Metric, len(values))
-	var writed bool
+	var written bool
 
 	for i, value := range values {
 		if value.IsEmpty() {
@@ -254,10 +258,10 @@ func (s *Storage) Save(ctx context.Context, values ...metrics.Metric) ([]metrics
 			actuals[i] = s.metrics.update(value)
 		}
 
-		writed = true
+		written = true
 	}
 
-	if s.synced && writed {
+	if s.synced && written {
 		err = s.wal.flush()
 		if err != nil {
 			return nil, fmt.Errorf("local: synchronous writing to a file: %w", err)
@@ -269,6 +273,8 @@ func (s *Storage) Save(ctx context.Context, values ...metrics.Metric) ([]metrics
 
 // Get реализует интерфейс storage.Storager.
 func (s *Storage) Get(ctx context.Context, name string) (metrics.Metric, error) {
+	// FIXME: при большом количестве чтения необходимо
+	// реализовать RLOCK.
 	err := s.lockContext(ctx)
 	if err != nil {
 		return metrics.Metric{}, err
@@ -286,6 +292,8 @@ func (s *Storage) Get(ctx context.Context, name string) (metrics.Metric, error) 
 
 // GetAll реализует интерфейс storage.Storager.
 func (s *Storage) GetAll(ctx context.Context) ([]metrics.Metric, error) {
+	// FIXME: при большом количестве чтения необходимо
+	// реализовать RLOCK.
 	err := s.lockContext(ctx)
 	if err != nil {
 		return nil, err

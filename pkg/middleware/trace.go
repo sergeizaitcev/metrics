@@ -15,6 +15,7 @@ type Params struct {
 	Duration   time.Duration
 	StatusCode int
 	Body       []byte
+	Error      error
 }
 
 // Trace передает параметры запроса в paramsFunc.
@@ -41,6 +42,7 @@ func Trace(paramsFunc func(*Params)) Middleware {
 				Duration:   elapsed,
 				StatusCode: rw.statusCode,
 				Body:       rw.body.Bytes(),
+				Error:      rw.err,
 			})
 		}
 	}
@@ -50,6 +52,15 @@ type traceResponseWriter struct {
 	http.ResponseWriter
 	body       bytes.Buffer
 	statusCode int
+	err        error
+}
+
+// WriteError записывает ошибку в w.
+func WriteError(w http.ResponseWriter, err error) {
+	rw, ok := w.(*traceResponseWriter)
+	if ok {
+		rw.err = err
+	}
 }
 
 func (w *traceResponseWriter) Write(p []byte) (int, error) {
