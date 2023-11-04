@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/sergeizaitcev/metrics/internal/handlers"
-	"github.com/sergeizaitcev/metrics/internal/logging"
 	"github.com/sergeizaitcev/metrics/internal/storage"
 	"github.com/sergeizaitcev/metrics/internal/storage/local"
 	"github.com/sergeizaitcev/metrics/internal/storage/postgres"
+	"github.com/sergeizaitcev/metrics/pkg/logging"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 	"github.com/sergeizaitcev/metrics/pkg/server"
 	"github.com/sergeizaitcev/metrics/pkg/sign"

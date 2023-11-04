@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/sergeizaitcev/metrics/internal/logging"
+	"github.com/sergeizaitcev/metrics/pkg/logging"
 )
 
 func TestLogger(t *testing.T) {
