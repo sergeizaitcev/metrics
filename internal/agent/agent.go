@@ -76,11 +76,13 @@ func New(config *configs.Agent, opts *AgentOpts) *Agent {
 // не сработает контекст или функция не вернёт ошибку.
 func (a *Agent) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-	wg.Add(a.config.RateLimit)
 
-	collectChan := a.Collect(ctx)
+	collectChan := make(chan []metrics.Metric, a.config.RateLimit)
+	a.Collect(ctx, collectChan)
 
 	for i := 0; i < a.config.RateLimit; i++ {
+		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
 
@@ -116,10 +118,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	return nil
 }
 
-// Collect собирает метрики и передаёт их в возвращаемый канал.
-func (a *Agent) Collect(ctx context.Context) <-chan []metrics.Metric {
-	snapshotChan := make(chan []metrics.Metric)
-
+// Collect собирает метрики и передаёт их в канал collectChan.
+func (a *Agent) Collect(ctx context.Context, collectChan chan<- []metrics.Metric) {
 	go func() {
 		pollChan := a.poll(ctx)
 
@@ -136,18 +136,16 @@ func (a *Agent) Collect(ctx context.Context) <-chan []metrics.Metric {
 			select {
 			case <-ctx.Done():
 				return
-			case snapshotChan <- <-pollChan:
+			case collectChan <- <-pollChan:
 			}
 		}
 	}()
-
-	return snapshotChan
 }
 
 // poll возвращает канал, в который отправляются снимки метрик с интервалом
 // PollInterval.
 func (a *Agent) poll(ctx context.Context) <-chan []metrics.Metric {
-	pollChan := make(chan []metrics.Metric, 1)
+	pollChan := make(chan []metrics.Metric)
 
 	go func() {
 		ticker := time.NewTicker(a.config.PollInterval)
@@ -160,14 +158,12 @@ func (a *Agent) poll(ctx context.Context) <-chan []metrics.Metric {
 			case <-ticker.C:
 			}
 
-			// NOTE: Если предыдущий снимок не был прочитан адресатом,
-			// то он будет обновлён.
+			snapshot := metrics.Snapshot()
+
 			select {
-			case <-pollChan:
+			case pollChan <- snapshot:
 			default:
 			}
-
-			pollChan <- metrics.Snapshot()
 		}
 	}()
 

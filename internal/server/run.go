@@ -25,11 +25,7 @@ func Run() error {
 		Logger: logging.New(os.Stdout, config.Level),
 	}
 
-	server, err := New(config, opts)
-	if err != nil {
-		return fmt.Errorf("create server: %w", err)
-	}
-	defer server.Close()
+	server := New(config, opts)
 
 	return server.Run(ctx)
 }

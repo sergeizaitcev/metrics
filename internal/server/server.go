@@ -7,6 +7,7 @@ import (
 
 	"github.com/sergeizaitcev/metrics/internal/configs"
 	"github.com/sergeizaitcev/metrics/internal/storage"
+	"github.com/sergeizaitcev/metrics/pkg/closer"
 	"github.com/sergeizaitcev/metrics/pkg/httpserver"
 	"github.com/sergeizaitcev/metrics/pkg/logging"
 )
@@ -22,13 +23,12 @@ type ServerOpts struct {
 
 // Server определяет сервер сбора метрик.
 type Server struct {
-	lis     net.Listener
-	srv     *httpserver.Server
-	storage storage.Storage
+	config *configs.Server
+	opts   *ServerOpts
 }
 
 // New возвращает новый экземпляр Server.
-func New(config *configs.Server, opts *ServerOpts) (*Server, error) {
+func New(config *configs.Server, opts *ServerOpts) *Server {
 	if opts == nil {
 		opts = defaultOpts
 	}
@@ -36,64 +36,42 @@ func New(config *configs.Server, opts *ServerOpts) (*Server, error) {
 		opts.Logger = defaultOpts.Logger
 	}
 
-	s := new(Server)
-
-	err := s.init(config, opts)
-	if err != nil {
-		return nil, fmt.Errorf("init server: %w", err)
+	return &Server{
+		config: config,
+		opts:   opts,
 	}
-
-	return s, nil
-}
-
-func (s *Server) init(config *configs.Server, opts *ServerOpts) error {
-	var err error
-
-	s.storage, err = storage.NewStorage(config.Storage)
-	if err != nil {
-		return fmt.Errorf("init storage: %w", err)
-	}
-
-	s.lis, err = net.Listen("tcp", config.Address)
-	if err != nil {
-		return fmt.Errorf("listen to %s: %w", config.Address, err)
-	}
-
-	mws := newMiddlewares(config, opts)
-	handler := NewHandler(s.storage, mws...)
-
-	srvOpts := &httpserver.ServerOpts{
-		Listener: s.lis,
-	}
-	s.srv = httpserver.New(handler, srvOpts)
-
-	return nil
-}
-
-// Close завершает работу сервера.
-func (s *Server) Close() error {
-	var firstErr error
-
-	err := s.srv.Close()
-	if err != nil {
-		firstErr = err
-	}
-
-	err = s.lis.Close()
-	if err != nil && firstErr == nil {
-		firstErr = err
-	}
-
-	err = s.storage.Close()
-	if err != nil && firstErr == nil {
-		firstErr = err
-	}
-
-	return firstErr
 }
 
 // Run запускает сервер сбора метрик и блокируется до тех пор, пока
 // не сработает контекст или функция не вернёт ошибку.
-func (s *Server) Run(ctx context.Context) error {
-	return s.srv.ListenAndServe(ctx)
+func (s *Server) Run(ctx context.Context) (err error) {
+	gracefulClose := closer.New()
+	defer func() {
+		firstErr := gracefulClose.Close()
+		if firstErr != nil && err == nil {
+			err = firstErr
+		}
+	}()
+
+	storage, err := storage.NewStorage(s.config.Storage)
+	if err != nil {
+		return fmt.Errorf("init storage: %w", err)
+	}
+	gracefulClose.Add(ctx, storage.Close)
+
+	lis, err := net.Listen("tcp", s.config.Address)
+	if err != nil {
+		return fmt.Errorf("listen to %s: %w", s.config.Address, err)
+	}
+	gracefulClose.Add(ctx, lis.Close)
+
+	mws := newMiddlewares(s.config, s.opts)
+	handler := NewHandler(storage, mws...)
+
+	srv := httpserver.New(handler, &httpserver.ServerOpts{
+		Listener: lis,
+	})
+	gracefulClose.Add(ctx, srv.Close)
+
+	return srv.ListenAndServe(ctx)
 }
