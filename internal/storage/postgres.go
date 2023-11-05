@@ -1,4 +1,4 @@
-package postgres
+package storage
 
 import (
 	"context"
@@ -10,29 +10,28 @@ import (
 
 	"github.com/sergeizaitcev/metrics/deployments/migrations"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
-	"github.com/sergeizaitcev/metrics/internal/storage"
 )
 
-var _ storage.Storager = (*Storage)(nil)
+var _ Storage = (*Postgres)(nil)
 
 // Storage определяет хранилище метрик в postgres.
-type Storage struct {
+type Postgres struct {
 	db *sql.DB
 }
 
 // New возвращает новый экземпляр хранилища метрик в postgres.
-func New(dsn string) (*Storage, error) {
+func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("postgres: connection refused: %w", err)
+		return nil, fmt.Errorf("storage: connection refused: %w", err)
 	}
 
-	return &Storage{db: db}, nil
+	return &Postgres{db: db}, nil
 }
 
 // MigrateUp запускает миграцию в БД.
-func (s *Storage) MigrateUp(ctx context.Context) error {
-	err := migrations.Up(ctx, s.db)
+func (p *Postgres) MigrateUp(ctx context.Context) error {
+	err := migrations.Up(ctx, p.db)
 	if err != nil {
 		return fmt.Errorf("postgres: migration up: %w", err)
 	}
@@ -40,39 +39,39 @@ func (s *Storage) MigrateUp(ctx context.Context) error {
 }
 
 // MigrateDown откатывает миграцию в БД.
-func (s *Storage) MigrateDown(ctx context.Context) error {
-	err := migrations.Down(ctx, s.db)
+func (p *Postgres) MigrateDown(ctx context.Context) error {
+	err := migrations.Down(ctx, p.db)
 	if err != nil {
 		return fmt.Errorf("postgres: migration down: %w", err)
 	}
 	return nil
 }
 
-// Ping реализует интерфейс storage.Storager.
-func (s *Storage) Ping(context.Context) error {
-	err := s.db.Ping()
+// Ping реализует интерфейс Storager.
+func (p *Postgres) Ping(context.Context) error {
+	err := p.db.Ping()
 	if err != nil {
 		return fmt.Errorf("postgres: ping to database: %w", err)
 	}
 	return nil
 }
 
-// Close реализует интерфейс storage.Storager.
-func (s *Storage) Close() error {
-	err := s.db.Close()
+// Close реализует интерфейс Storager.
+func (p *Postgres) Close() error {
+	err := p.db.Close()
 	if err != nil {
 		return fmt.Errorf("postgres: closing database: %w", err)
 	}
 	return nil
 }
 
-// Save реализует интерфейс storage.Storager.
-func (s *Storage) Save(ctx context.Context, values ...metrics.Metric) ([]metrics.Metric, error) {
+// Save реализует интерфейс Storager.
+func (p *Postgres) Save(ctx context.Context, values ...metrics.Metric) ([]metrics.Metric, error) {
 	if len(values) == 0 {
 		return nil, errors.New("values is empty")
 	}
 
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{
+	tx, err := p.db.BeginTx(ctx, &sql.TxOptions{
 		Isolation: sql.LevelReadCommitted,
 	})
 	if err != nil {
@@ -91,9 +90,9 @@ func (s *Storage) Save(ctx context.Context, values ...metrics.Metric) ([]metrics
 
 		switch value.Kind() {
 		case metrics.KindCounter:
-			actual, err = s.add(ctx, tx, value)
+			actual, err = p.add(ctx, tx, value)
 		case metrics.KindGauge:
-			actual, err = s.update(ctx, tx, value)
+			actual, err = p.update(ctx, tx, value)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("postgres: saving metrics: %w", err)
@@ -111,7 +110,7 @@ func (s *Storage) Save(ctx context.Context, values ...metrics.Metric) ([]metrics
 }
 
 // add увеличивает значение метрики и возвращает его.
-func (s *Storage) add(
+func (p *Postgres) add(
 	ctx context.Context,
 	tx *sql.Tx,
 	value metrics.Metric,
@@ -144,7 +143,7 @@ func (s *Storage) add(
 }
 
 // update обновляет значение метрики и возвращает предыдущее.
-func (s *Storage) update(
+func (p *Postgres) update(
 	ctx context.Context,
 	tx *sql.Tx,
 	value metrics.Metric,
@@ -167,7 +166,7 @@ func (s *Storage) update(
 		metric metrics.Metric
 	)
 
-	err := s.db.QueryRowContext(
+	err := p.db.QueryRowContext(
 		ctx,
 		query,
 		value.Name(),
@@ -186,10 +185,10 @@ func (s *Storage) update(
 }
 
 // Get реализует интерфейс storage.Storager.
-func (s *Storage) Get(ctx context.Context, name string) (metrics.Metric, error) {
+func (p *Postgres) Get(ctx context.Context, name string) (metrics.Metric, error) {
 	query := "SELECT kind, counter, gauge FROM metrics WHERE name = $1 LIMIT 1;"
 
-	row := s.db.QueryRowContext(ctx, query, name)
+	row := p.db.QueryRowContext(ctx, query, name)
 	err := row.Err()
 	if err != nil {
 		return metrics.Metric{}, fmt.Errorf("postgres: execution query: %w", err)
@@ -204,7 +203,7 @@ func (s *Storage) Get(ctx context.Context, name string) (metrics.Metric, error) 
 	err = row.Scan(&kind, &counter, &gauge)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			err = storage.ErrNotFound
+			err = ErrNotFound
 		}
 		return metrics.Metric{}, fmt.Errorf("postgres: scan row: %w", err)
 	}
@@ -221,11 +220,11 @@ func (s *Storage) Get(ctx context.Context, name string) (metrics.Metric, error) 
 	return metric, nil
 }
 
-// GetAll реализует интерфейс storage.Storager.
-func (s *Storage) GetAll(ctx context.Context) ([]metrics.Metric, error) {
+// GetAll реализует интерфейс Storager.
+func (p *Postgres) GetAll(ctx context.Context) ([]metrics.Metric, error) {
 	query := "SELECT name, kind, counter, gauge FROM metrics ORDER BY name;"
 
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := p.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: execution query: %w", err)
 	}
@@ -261,7 +260,7 @@ func (s *Storage) GetAll(ctx context.Context) ([]metrics.Metric, error) {
 		return nil, fmt.Errorf("postgres: iterate by rows: %w", err)
 	}
 	if len(values) == 0 {
-		return nil, storage.ErrNotFound
+		return nil, ErrNotFound
 	}
 
 	return values, nil

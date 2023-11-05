@@ -2,6 +2,8 @@ package agent
 
 import (
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -11,41 +13,25 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
+	"github.com/sergeizaitcev/metrics/internal/configs"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
+	"github.com/sergeizaitcev/metrics/pkg/logging"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 	"github.com/sergeizaitcev/metrics/pkg/sign"
 )
 
 var defaultOptions = &AgentOpts{
-	ReportInterval: 10 * time.Second,
-	PollInterval:   2 * time.Second,
-	RateLimit:      1,
-	Transport:      http.DefaultTransport.(*http.Transport).Clone(),
+	Logger:    logging.Discard(),
+	Transport: http.DefaultTransport.(*http.Transport).Clone(),
 }
 
-// AgentOpts определяет не обязательные параметры для агента.
+// AgentOpts определяет не обязательные параметры для Agent.
 type AgentOpts struct {
-	// Ключ подписи данных. Если ключ пуст, то данные не подписываются.
-	SHA256Key string
-
-	// Интервал отправки метрик на сервер.
-	//
-	// По умолчанию 10s.
-	ReportInterval time.Duration
-
-	// Интервал сбора метрик.
-	//
-	// По умолчанию 2s.
-	PollInterval time.Duration
-
-	// Количество одновременных запросов на сервер.
-	//
-	// По умолчанию 1.
-	RateLimit int
+	// Логирование ошибок.
+	Logger *logging.Logger
 
 	// Время ожидания ответа от сервера.
 	Timeout time.Duration
@@ -54,70 +40,80 @@ type AgentOpts struct {
 	Transport http.RoundTripper
 }
 
-func (o *AgentOpts) clone() *AgentOpts {
-	o2 := *o
-	return &o2
-}
-
 // Agent определяет агент для сбора и отправки метрик на сервер.
 type Agent struct {
-	addr   string
-	client http.Client
-	opts   *AgentOpts
+	config *configs.Agent
+	client *http.Client
+	logger *logging.Logger
 }
 
 // New возвращает новый экземпляр Agent.
-func New(addr string, opts *AgentOpts) *Agent {
+func New(config *configs.Agent, opts *AgentOpts) *Agent {
 	if opts == nil {
 		opts = defaultOptions
 	}
 
-	o2 := opts.clone()
-
-	if o2.PollInterval <= 0 {
-		o2.PollInterval = defaultOptions.PollInterval
+	if opts.Logger == nil {
+		opts.Logger = defaultOptions.Logger
 	}
-	if o2.ReportInterval <= 0 {
-		o2.ReportInterval = defaultOptions.ReportInterval
-	}
-	if o2.RateLimit < 1 {
-		o2.RateLimit = 1
-	}
-	if o2.Transport == nil {
-		o2.Transport = defaultOptions.Transport.(*http.Transport).Clone()
+	if opts.Transport == nil {
+		opts.Transport = defaultOptions.Transport.(*http.Transport).Clone()
 	}
 
-	client := http.Client{
-		Timeout:   o2.Timeout,
-		Transport: o2.Transport,
+	client := &http.Client{
+		Timeout:   opts.Timeout,
+		Transport: opts.Transport,
 	}
 
-	return &Agent{addr: addr, client: client, opts: o2}
+	return &Agent{
+		config: config,
+		client: client,
+		logger: opts.Logger,
+	}
 }
 
 // Run собирает метрики и отправляет их на сервер; блокируется до тех пор, пока
 // не сработает контекст или функция не вернёт ошибку.
 func (a *Agent) Run(ctx context.Context) error {
-	errg, errgCtx := errgroup.WithContext(ctx)
-	collectChan := a.Collect(errgCtx)
+	var wg sync.WaitGroup
+	wg.Add(a.config.RateLimit)
 
-	for i := 0; i < a.opts.RateLimit; i++ {
-		errg.Go(func() error {
+	collectChan := a.Collect(ctx)
+
+	for i := 0; i < a.config.RateLimit; i++ {
+		go func() {
+			defer wg.Done()
+
 			for {
 				select {
-				case <-errgCtx.Done():
-					return nil
+				case <-ctx.Done():
+					return
 				case snapshot := <-collectChan:
+					a.logger.Log(logging.LevelDebug, "sending a new metrics batch",
+						"batch_size", len(snapshot),
+					)
+
+					start := time.Now()
 					err := a.Send(ctx, snapshot)
+					elapsed := time.Since(start)
+
 					if err != nil {
-						return err
+						a.logger.Log(logging.LevelError, err.Error())
+						continue
 					}
+
+					a.logger.Log(logging.LevelDebug, "the metrics batch was sent successfully",
+						"batch_size", len(snapshot),
+						"elapsed", elapsed.String(),
+					)
 				}
 			}
-		})
+		}()
 	}
 
-	return errg.Wait()
+	wg.Wait()
+
+	return nil
 }
 
 // Collect собирает метрики и передаёт их в возвращаемый канал.
@@ -127,7 +123,7 @@ func (a *Agent) Collect(ctx context.Context) <-chan []metrics.Metric {
 	go func() {
 		pollChan := a.poll(ctx)
 
-		ticker := time.NewTicker(a.opts.ReportInterval)
+		ticker := time.NewTicker(a.config.ReportInterval)
 		defer ticker.Stop()
 
 		for {
@@ -154,7 +150,7 @@ func (a *Agent) poll(ctx context.Context) <-chan []metrics.Metric {
 	pollChan := make(chan []metrics.Metric, 1)
 
 	go func() {
-		ticker := time.NewTicker(a.opts.PollInterval)
+		ticker := time.NewTicker(a.config.PollInterval)
 		defer ticker.Stop()
 
 		for {
@@ -203,34 +199,57 @@ func (a *Agent) prepareRequest(
 ) (*http.Request, error) {
 	u := url.URL{
 		Scheme: "http",
-		Host:   a.addr,
+		Host:   a.config.Address,
 		Path:   "/updates/",
 	}
 
-	var buf bytes.Buffer
-
-	err := json.NewEncoder(&buf).Encode(&values)
+	body, err := newBody(values)
 	if err != nil {
-		return nil, fmt.Errorf("encoding metrics: %w", err)
+		return nil, fmt.Errorf("create a new body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), &buf)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), body)
 	if err != nil {
 		return nil, fmt.Errorf("create a new request: %w", err)
 	}
 
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Accept-Encoding", "gzip")
+	req.Header.Add("Content-Encoding", "gzip")
 	req.Header.Add("Content-Type", "application/json")
 
-	if a.opts.SHA256Key != "" {
-		s := sign.Signer(a.opts.SHA256Key)
-		signed := s.Sign(buf.Bytes())
-		hash := base64.RawURLEncoding.EncodeToString(signed)
+	if a.config.SHA256Key != "" {
+		hash := signBody(body, a.config.SHA256Key)
 		req.Header.Add(middleware.SignHeader, hash)
 	}
 
 	return req, nil
+}
+
+func newBody(values []metrics.Metric) (*bytes.Buffer, error) {
+	buf := bytes.NewBuffer(nil)
+
+	// NOTE: проверка на ошибку не требуется,
+	// т.к. flate.BestCompression валидное значение.
+	gw, _ := gzip.NewWriterLevel(buf, flate.BestCompression)
+
+	err := json.NewEncoder(gw).Encode(&values)
+	if err != nil {
+		return nil, fmt.Errorf("encoding metrics: %w", err)
+	}
+
+	err = gw.Close()
+	if err != nil {
+		return nil, fmt.Errorf("closing gzip writer: %w", err)
+	}
+
+	return buf, nil
+}
+
+func signBody(body *bytes.Buffer, key string) string {
+	s := sign.Signer(key)
+	signed := s.Sign(body.Bytes())
+	return base64.RawURLEncoding.EncodeToString(signed)
 }
 
 func (a *Agent) sendRequest(req *http.Request) error {

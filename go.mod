@@ -3,6 +3,7 @@ module github.com/sergeizaitcev/metrics
 go 1.20
 
 require (
+	github.com/caarlos0/env/v10 v10.0.0
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/lib/pq v1.10.9
 	github.com/pressly/goose/v3 v3.15.1
@@ -10,7 +11,6 @@ require (
 	github.com/shirou/gopsutil/v3 v3.23.9
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/net v0.17.0
-	golang.org/x/sync v0.4.0
 )
 
 require (

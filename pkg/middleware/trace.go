@@ -10,9 +10,9 @@ import (
 
 // Params определяет параметры запроса.
 type Params struct {
-	URI        string
 	Method     string
-	Duration   time.Duration
+	Path       string
+	Elapsed    time.Duration
 	StatusCode int
 	Body       []byte
 	Error      error
@@ -37,9 +37,9 @@ func Trace(paramsFunc func(*Params)) Middleware {
 			}
 
 			paramsFunc(&Params{
-				URI:        reqURI,
+				Path:       reqURI,
 				Method:     r.Method,
-				Duration:   elapsed,
+				Elapsed:    elapsed,
 				StatusCode: rw.statusCode,
 				Body:       rw.body.Bytes(),
 				Error:      rw.err,

@@ -30,6 +30,11 @@ func New(w io.Writer, level Level) *Logger {
 	return &Logger{level: level, log: log}
 }
 
+// Discard возвращает пустой Logger.
+func Discard() *Logger {
+	return New(io.Discard, LevelError+1)
+}
+
 // allowed возвращает true, если уровень логирования разрешён.
 func (l *Logger) allowed(level Level) bool {
 	return level >= l.level

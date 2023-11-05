@@ -1,4 +1,4 @@
-package server_test
+package httpserver_test
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/nettest"
 
-	"github.com/sergeizaitcev/metrics/pkg/server"
+	"github.com/sergeizaitcev/metrics/pkg/httpserver"
 	"github.com/sergeizaitcev/metrics/pkg/testutil"
 )
 
@@ -25,11 +25,11 @@ func TestServer(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	opts := &server.ServerOpts{
+	opts := &httpserver.ServerOpts{
 		Listener: lis,
 	}
 
-	s := server.New(mux, opts)
+	s := httpserver.New(mux, opts)
 	errc := make(chan error)
 
 	ctx, cancel := context.WithTimeout(testutil.Context(t), 3*time.Second)

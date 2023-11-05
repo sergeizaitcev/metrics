@@ -9,7 +9,7 @@ import (
 	"github.com/sergeizaitcev/metrics/internal/storage"
 )
 
-var _ storage.Storager = (*MockStorage)(nil)
+var _ storage.Storage = (*MockStorage)(nil)
 
 type MockStorage struct {
 	mock.Mock

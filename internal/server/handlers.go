@@ -1,4 +1,4 @@
-package handlers
+package server
 
 import (
 	"encoding/json"
@@ -22,7 +22,7 @@ var (
 )
 
 // New возвращает новый обработчик HTTP-запросов.
-func New(s storage.Storager, middlewares ...middleware.Middleware) http.Handler {
+func NewHandler(s storage.Storage, middlewares ...middleware.Middleware) http.Handler {
 	router := &httprouter.Router{
 		HandleMethodNotAllowed: true,
 		HandleOPTIONS:          true,
@@ -33,7 +33,7 @@ func New(s storage.Storager, middlewares ...middleware.Middleware) http.Handler 
 	for _, h := range []struct {
 		method string
 		path   string
-		handle func(storage.Storager) httprouter.Handle
+		handle func(storage.Storage) httprouter.Handle
 	}{
 		{
 			method: http.MethodGet,
@@ -84,7 +84,7 @@ func New(s storage.Storager, middlewares ...middleware.Middleware) http.Handler 
 	return router
 }
 
-func ping(s storage.Storager) httprouter.Handle {
+func ping(s storage.Storage) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctx := r.Context()
 		if err := s.Ping(ctx); err != nil {
@@ -93,7 +93,7 @@ func ping(s storage.Storager) httprouter.Handle {
 	}
 }
 
-func all(s storage.Storager) httprouter.Handle {
+func all(s storage.Storage) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctx := r.Context()
 
@@ -114,7 +114,7 @@ func all(s storage.Storager) httprouter.Handle {
 }
 
 // Deprecated: используется для обратной совместимости.
-func get(s storage.Storager) httprouter.Handle {
+func get(s storage.Storage) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		kind := metrics.ParseKind(p.ByName("metric"))
 		if kind == metrics.KindUnknown {
@@ -142,7 +142,7 @@ func get(s storage.Storager) httprouter.Handle {
 	}
 }
 
-func getV2(s storage.Storager) httprouter.Handle {
+func getV2(s storage.Storage) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctype := r.Header.Get("Content-Type")
 		if !strings.Contains(ctype, "application/json") {
@@ -187,7 +187,7 @@ func getV2(s storage.Storager) httprouter.Handle {
 }
 
 // Deprecated: используется для обратной совместимости.
-func update(s storage.Storager) httprouter.Handle {
+func update(s storage.Storage) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		kind := metrics.ParseKind(p.ByName("metric"))
 		if kind == metrics.KindUnknown {
@@ -227,7 +227,7 @@ func update(s storage.Storager) httprouter.Handle {
 }
 
 // Deprecated: используется для обратной совместимости.
-func updateV2(s storage.Storager) httprouter.Handle {
+func updateV2(s storage.Storage) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctype := r.Header.Get("Content-Type")
 		if !strings.Contains(ctype, "application/json") {
@@ -265,7 +265,7 @@ func updateV2(s storage.Storager) httprouter.Handle {
 	}
 }
 
-func updateV3(s storage.Storager) httprouter.Handle {
+func updateV3(s storage.Storage) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		ctype := r.Header.Get("Content-Type")
 		if !strings.Contains(ctype, "application/json") {

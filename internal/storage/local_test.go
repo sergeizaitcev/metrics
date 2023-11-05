@@ -1,4 +1,4 @@
-package local_test
+package storage_test
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
-	"github.com/sergeizaitcev/metrics/internal/storage/local"
+	"github.com/sergeizaitcev/metrics/internal/storage"
 	"github.com/sergeizaitcev/metrics/pkg/testutil"
 )
 
@@ -44,15 +44,19 @@ func snapshot() (snap []metrics.Metric, want []metrics.Metric) {
 	return snap, want
 }
 
-func testStorage(t *testing.T, synced bool, values ...metrics.Metric) (*local.Storage, string) {
+func testLocal(
+	t *testing.T,
+	synced bool,
+	values ...metrics.Metric,
+) (*storage.Local, string) {
 	name := filename(t)
 
-	opts := &local.StorageOpts{}
+	opts := &storage.LocalOpts{}
 	if !synced {
 		opts.StoreInterval = 50 * time.Millisecond
 	}
 
-	storage, err := local.New(name, opts)
+	storage, err := storage.NewLocal(name, opts)
 	if err != nil {
 		t.Log(err)
 		t.SkipNow()
@@ -68,14 +72,14 @@ func testStorage(t *testing.T, synced bool, values ...metrics.Metric) (*local.St
 
 func TestStorage_reopen(t *testing.T) {
 	snap, want := snapshot()
-	storage, name := testStorage(t, true, snap...)
+	store, name := testLocal(t, true, snap...)
 
 	ctx := testutil.Context(t)
 
-	require.NoError(t, storage.Ping(ctx))
-	require.NoError(t, storage.Close())
+	require.NoError(t, store.Ping(ctx))
+	require.NoError(t, store.Close())
 
-	opened, err := local.New(name, &local.StorageOpts{Restore: true})
+	opened, err := storage.NewLocal(name, &storage.LocalOpts{Restore: true})
 	if err != nil {
 		t.SkipNow()
 	}
@@ -98,11 +102,11 @@ func TestStorage_reopen(t *testing.T) {
 	require.NoError(t, opened.Close())
 }
 
-func TestStorage(t *testing.T) {
+func TestLocal(t *testing.T) {
 	ctx := testutil.Context(t)
 
 	t.Run("save", func(t *testing.T) {
-		storage, _ := testStorage(t, false)
+		storage, _ := testLocal(t, false)
 
 		testCases := []struct {
 			name        string
@@ -159,7 +163,7 @@ func TestStorage(t *testing.T) {
 	})
 
 	t.Run("get", func(t *testing.T) {
-		storage, _ := testStorage(
+		storage, _ := testLocal(
 			t,
 			false,
 			metrics.Gauge("gauge", 1),
@@ -207,7 +211,7 @@ func TestStorage(t *testing.T) {
 			metrics.Gauge("gauge", 1),
 			metrics.Counter("counter", 1),
 		}
-		storage, _ := testStorage(t, false, want...)
+		storage, _ := testLocal(t, false, want...)
 
 		got, err := storage.GetAll(ctx)
 		require.NoError(t, err)

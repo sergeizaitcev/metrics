@@ -1,4 +1,4 @@
-package handlers_test
+package server_test
 
 import (
 	"errors"
@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sergeizaitcev/metrics/internal/handlers"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
+	"github.com/sergeizaitcev/metrics/internal/server"
 	"github.com/sergeizaitcev/metrics/internal/storage"
 	"github.com/sergeizaitcev/metrics/internal/storage/mocks"
 )
@@ -39,7 +39,7 @@ func TestHandlers_ping(t *testing.T) {
 			storage := mocks.NewMockStorage()
 			storage.On("Ping", mock.Anything).Return(tc.mockError)
 
-			handler := handlers.New(storage)
+			handler := server.NewHandler(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/ping", nil)
@@ -80,7 +80,7 @@ func TestHandlers_all(t *testing.T) {
 			storage := mocks.NewMockStorage()
 			storage.On("GetAll", mock.Anything).Return(tc.mockMetrics, tc.mockError)
 
-			handler := handlers.New(storage)
+			handler := server.NewHandler(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -150,7 +150,7 @@ func TestHandlers_update(t *testing.T) {
 			storage.On("Save", mock.Anything, []metrics.Metric{tc.metric}).
 				Return(([]metrics.Metric)(nil), tc.mockError).Maybe()
 
-			handler := handlers.New(storage)
+			handler := server.NewHandler(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, tc.path, nil)
@@ -225,7 +225,7 @@ func TestHandlers_updateV2(t *testing.T) {
 			storage.On("Save", mock.Anything, []metrics.Metric{tc.metric}).
 				Return([]metrics.Metric{tc.mockMetric}, tc.mockError).Maybe()
 
-			handler := handlers.New(storage)
+			handler := server.NewHandler(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(tc.body))
@@ -297,7 +297,7 @@ func TestHandlers_updateV3(t *testing.T) {
 				Return(([]metrics.Metric)(nil), tc.mockError).
 				Maybe()
 
-			handler := handlers.New(storage)
+			handler := server.NewHandler(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/updates/", strings.NewReader(tc.body))
@@ -378,7 +378,7 @@ func TestHandlers_get(t *testing.T) {
 			storage := mocks.NewMockStorage()
 			storage.On("Get", mock.Anything, tc.metric).Return(tc.mockMetric, tc.mockError).Maybe()
 
-			handler := handlers.New(storage)
+			handler := server.NewHandler(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
@@ -481,7 +481,7 @@ func TestHandlers_getV2(t *testing.T) {
 			storage := mocks.NewMockStorage()
 			storage.On("Get", mock.Anything, tc.metric).Return(tc.mockMetric, tc.mockError).Maybe()
 
-			handler := handlers.New(storage)
+			handler := server.NewHandler(storage)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/value", strings.NewReader(tc.body))

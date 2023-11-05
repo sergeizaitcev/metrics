@@ -1,4 +1,4 @@
-package postgres_test
+package storage_test
 
 import (
 	"context"
@@ -7,16 +7,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sergeizaitcev/metrics/internal/metrics"
-	"github.com/sergeizaitcev/metrics/internal/storage/postgres"
+	"github.com/sergeizaitcev/metrics/internal/storage"
 	"github.com/sergeizaitcev/metrics/pkg/testutil"
 )
 
-func testStorage(t *testing.T) (*postgres.Storage, context.Context) {
+func testPostgres(t *testing.T) (*storage.Postgres, context.Context) {
 	t.Helper()
 
 	const dsn = "postgres://postgres:postgres@localhost:5432/practicum?sslmode=disable"
 
-	storage, err := postgres.New(dsn)
+	storage, err := storage.NewPostgres(dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { storage.Close() })
 
@@ -33,7 +33,7 @@ func testStorage(t *testing.T) (*postgres.Storage, context.Context) {
 	return storage, ctx
 }
 
-func TestStorage(t *testing.T) {
+func TestPostgres(t *testing.T) {
 	t.Run("save", func(t *testing.T) {
 		testCases := []struct {
 			name        string
@@ -67,7 +67,7 @@ func TestStorage(t *testing.T) {
 			},
 		}
 
-		storage, ctx := testStorage(t)
+		storage, ctx := testPostgres(t)
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -110,7 +110,7 @@ func TestStorage(t *testing.T) {
 			},
 		}
 
-		storage, ctx := testStorage(t)
+		storage, ctx := testPostgres(t)
 
 		_, err := storage.Save(ctx,
 			metrics.Counter("counter", 1),
@@ -132,7 +132,7 @@ func TestStorage(t *testing.T) {
 	})
 
 	t.Run("get_all", func(t *testing.T) {
-		storage, ctx := testStorage(t)
+		storage, ctx := testPostgres(t)
 		want := []metrics.Metric{
 			metrics.Counter("counter", 1),
 			metrics.Gauge("gauge", 1),
@@ -149,7 +149,7 @@ func TestStorage(t *testing.T) {
 	})
 
 	t.Run("not_found", func(t *testing.T) {
-		storage, ctx := testStorage(t)
+		storage, ctx := testPostgres(t)
 		_, err := storage.GetAll(ctx)
 		require.Error(t, err)
 	})
