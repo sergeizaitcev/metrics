@@ -1,38 +1,43 @@
 package metrics
 
 import (
-	"crypto/rand"
-	"encoding/binary"
-	"io"
-	mathrand "math/rand"
+	"fmt"
 	"runtime"
 	"sync/atomic"
+
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
+
+	"github.com/sergeizaitcev/metrics/pkg/randutil"
 )
 
 var snapCnt atomic.Int64
-
-var rnd = func() *mathrand.Rand {
-	buf := make([]byte, 8)
-	_, err := io.ReadFull(rand.Reader, buf)
-	if err != nil {
-		panic(err)
-	}
-	src := mathrand.NewSource(int64(binary.LittleEndian.Uint64(buf)))
-	return mathrand.New(src)
-}()
 
 // Snapshot возвращает снимок метрик всей системы.
 func Snapshot() []Metric {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 
+	memstat, err := mem.VirtualMemory()
+	if err != nil {
+		err = fmt.Errorf("metrics: collecting memory statistics: %w", err)
+		panic(err)
+	}
+
+	cpustat, err := cpu.Percent(0, false)
+	if err != nil {
+		err = fmt.Errorf("metrics: collecting cpu statistics: %w", err)
+		panic(err)
+	}
+
 	snapCnt.Add(1)
 
 	return []Metric{
 		Gauge("Alloc", float64(ms.Alloc)),
 		Gauge("BuckHashSys", float64(ms.BuckHashSys)),
+		Gauge("CPUutilization1", cpustat[0]),
 		Gauge("Frees", float64(ms.Frees)),
-		Gauge("NumForcedGC", float64(ms.NumForcedGC)),
+		Gauge("FreeMemory", float64(memstat.Free)),
 		Gauge("GCCPUFraction", ms.GCCPUFraction),
 		Gauge("GCSys", float64(ms.GCSys)),
 		Gauge("HeapAlloc", float64(ms.HeapAlloc)),
@@ -49,14 +54,16 @@ func Snapshot() []Metric {
 		Gauge("MSpanInuse", float64(ms.MSpanInuse)),
 		Gauge("MSpanSys", float64(ms.MSpanSys)),
 		Gauge("NextGC", float64(ms.NextGC)),
+		Gauge("NumForcedGC", float64(ms.NumForcedGC)),
 		Gauge("NumGC", float64(ms.NumGC)),
 		Gauge("OtherSys", float64(ms.OtherSys)),
 		Gauge("PauseTotalNs", float64(ms.PauseTotalNs)),
 		Counter("PollCount", snapCnt.Load()),
-		Gauge("RandomValue", rnd.Float64()),
+		Gauge("RandomValue", randutil.Float64()),
 		Gauge("StackInuse", float64(ms.StackInuse)),
 		Gauge("StackSys", float64(ms.StackSys)),
 		Gauge("Sys", float64(ms.Sys)),
 		Gauge("TotalAlloc", float64(ms.TotalAlloc)),
+		Gauge("TotalMemory", float64(memstat.Total)),
 	}
 }

@@ -10,11 +10,12 @@ import (
 
 // Params определяет параметры запроса.
 type Params struct {
-	URI        string
 	Method     string
-	Duration   time.Duration
+	Path       string
+	Elapsed    time.Duration
 	StatusCode int
 	Body       []byte
+	Error      error
 }
 
 // Trace передает параметры запроса в paramsFunc.
@@ -36,11 +37,12 @@ func Trace(paramsFunc func(*Params)) Middleware {
 			}
 
 			paramsFunc(&Params{
-				URI:        reqURI,
+				Path:       reqURI,
 				Method:     r.Method,
-				Duration:   elapsed,
+				Elapsed:    elapsed,
 				StatusCode: rw.statusCode,
 				Body:       rw.body.Bytes(),
+				Error:      rw.err,
 			})
 		}
 	}
@@ -50,6 +52,15 @@ type traceResponseWriter struct {
 	http.ResponseWriter
 	body       bytes.Buffer
 	statusCode int
+	err        error
+}
+
+// WriteError записывает ошибку в w.
+func WriteError(w http.ResponseWriter, err error) {
+	rw, ok := w.(*traceResponseWriter)
+	if ok {
+		rw.err = err
+	}
 }
 
 func (w *traceResponseWriter) Write(p []byte) (int, error) {

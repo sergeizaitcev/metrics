@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -36,6 +37,7 @@ func TestTrace(t *testing.T) {
 
 	for _, tc := range testCases {
 		handler := func(w http.ResponseWriter, _ *http.Request, _ httprouter.Params) {
+			middleware.WriteError(w, errors.New("error"))
 			w.WriteHeader(tc.statusCode)
 			w.Write(tc.body)
 		}
@@ -50,10 +52,11 @@ func TestTrace(t *testing.T) {
 		trace(rec, req, httprouter.Params{})
 		params := <-paramsChan
 
-		require.Equal(t, tc.path, params.URI)
+		require.Equal(t, tc.path, params.Path)
 		require.Equal(t, tc.method, params.Method)
-		require.NotEmpty(t, params.Duration)
+		require.NotEmpty(t, params.Elapsed)
 		require.Equal(t, tc.statusCode, params.StatusCode)
 		require.Equal(t, tc.body, params.Body)
+		require.Error(t, params.Error)
 	}
 }

@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -12,97 +11,6 @@ import (
 	"strings"
 	"unsafe"
 )
-
-// Storager представляет интерфейс хранилища метрик.
-type Storager interface {
-	// Ping выполняет пинг к хранилищу.
-	Ping(context.Context) error
-
-	// Close закрывает хранилище.
-	Close() error
-
-	// SaveMany устанавливает или увеличивает значения метрик.
-	SaveMany(context.Context, []Metric) error
-
-	// Add увеличивает значение метрики и возвращает итоговый результат.
-	Add(context.Context, Metric) (Metric, error)
-
-	// Set устанавливает новое значение метрики и возвращает предыдущее.
-	Set(context.Context, Metric) (Metric, error)
-
-	// Get возвращает метрику.
-	Get(context.Context, string) (Metric, error)
-
-	// GetAll возвращает все метрики.
-	GetAll(context.Context) ([]Metric, error)
-}
-
-// Metrics определяет сервис для работы с метриками.
-type Metrics struct {
-	storage Storager
-}
-
-// NewService возвращает новый экземпляр metrics.
-func NewMetrics(s Storager) *Metrics {
-	return &Metrics{storage: s}
-}
-
-// Save сохраняет метрику.
-func (m *Metrics) Save(ctx context.Context, metric Metric) (Metric, error) {
-	var (
-		actual Metric
-		err    error
-	)
-
-	switch metric.Kind() {
-	case KindCounter:
-		actual, err = m.storage.Add(ctx, metric)
-		if err != nil {
-			return Metric{}, fmt.Errorf("metrics: adding a counter: %w", err)
-		}
-	case KindGauge:
-		actual, err = m.storage.Set(ctx, metric)
-		if err != nil {
-			return Metric{}, fmt.Errorf("metrics: setting a gauge: %w", err)
-		}
-	default:
-		return Metric{}, fmt.Errorf("metrics: unsupported kind: %s", metric.Kind())
-	}
-
-	return actual, nil
-}
-
-// SaveMany сохраняет метрики.
-func (m *Metrics) SaveMany(ctx context.Context, metrics []Metric) error {
-	if len(metrics) == 0 {
-		return nil
-	}
-
-	err := m.storage.SaveMany(ctx, metrics)
-	if err != nil {
-		return fmt.Errorf("metrics: save metrics: %w", err)
-	}
-
-	return nil
-}
-
-// Lookup выполняет поиск метрики по её имени.
-func (m *Metrics) Lookup(ctx context.Context, name string) (Metric, error) {
-	metric, err := m.storage.Get(ctx, name)
-	if err != nil {
-		return Metric{}, fmt.Errorf("metrics: lookup for a metric by name: %w", err)
-	}
-	return metric, nil
-}
-
-// All возвращает все метрики.
-func (m *Metrics) All(ctx context.Context) ([]Metric, error) {
-	metrics, err := m.storage.GetAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("metrics: getting all metrics: %w", err)
-	}
-	return metrics, nil
-}
 
 // Kind определяет тип метрики.
 type Kind uint8
