@@ -39,7 +39,7 @@ func TestTrace(t *testing.T) {
 		handler := func(w http.ResponseWriter, _ *http.Request, _ httprouter.Params) {
 			middleware.WriteError(w, errors.New("error"))
 			w.WriteHeader(tc.statusCode)
-			w.Write(tc.body)
+			_, _ = w.Write(tc.body)
 		}
 
 		paramsChan := make(chan middleware.Params, 1)

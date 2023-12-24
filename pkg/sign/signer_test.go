@@ -13,5 +13,5 @@ func TestSigner(t *testing.T) {
 	key := randutil.Bytes(64)
 	s := sign.Signer(key)
 	signed := s.Sign(randutil.Bytes(1024))
-	require.Len(t, signed, 32)
+	require.Len(t, signed, sign.SignLen)
 }

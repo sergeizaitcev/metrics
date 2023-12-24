@@ -40,7 +40,7 @@ func (l *Logger) allowed(level Level) bool {
 	return level >= l.level
 }
 
-// Log записывает форматирование сообщение.
+// Log записывает форматированное сообщение.
 func (l *Logger) Log(level Level, msg string, a ...any) {
 	if !l.allowed(level) {
 		return
