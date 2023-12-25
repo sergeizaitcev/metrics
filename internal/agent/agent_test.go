@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"testing"
@@ -44,27 +43,6 @@ func (m *transportMock) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	return res, nil
-}
-
-var _ net.Error = (*timeoutError)(nil)
-
-type timeoutError string
-
-func newTimeoutError(s string) error {
-	err := timeoutError(s)
-	return &err
-}
-
-func (err *timeoutError) Error() string {
-	return string(*err)
-}
-
-func (err *timeoutError) Timeout() bool {
-	return true
-}
-
-func (err *timeoutError) Temporary() bool {
-	return false
 }
 
 func TestAgent(t *testing.T) {
