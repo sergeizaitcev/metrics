@@ -283,15 +283,15 @@ func TestMetric_MarshalBinary(t *testing.T) {
 	}
 }
 
-func TestMetric_UnmarshalBinary(t *testing.T) {
-	marshal := func(t *testing.T, m metrics.Metric) []byte {
-		b, err := m.MarshalBinary()
-		if err != nil {
-			t.Fatal(err)
-		}
-		return b
+func marshal(t testing.TB, m metrics.Metric) []byte {
+	b, err := m.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
 	}
+	return b
+}
 
+func TestMetric_UnmarshalBinary(t *testing.T) {
 	testCases := []struct {
 		name       string
 		data       []byte
@@ -352,4 +352,59 @@ func TestMetric_UnmarshalBinary(t *testing.T) {
 			}
 		})
 	}
+}
+
+func BenchmarkParseKind(b *testing.B) {
+	b.Run("gauge", func(b *testing.B) {
+		const value = "gauge"
+		var kind metrics.Kind
+		for i := 0; i < b.N; i++ {
+			kind = metrics.ParseKind(value)
+		}
+		_ = kind
+	})
+
+	b.Run("counter", func(b *testing.B) {
+		const value = "counter"
+		var kind metrics.Kind
+		for i := 0; i < b.N; i++ {
+			kind = metrics.ParseKind(value)
+		}
+		_ = kind
+	})
+}
+
+func BenchmarkMetric_MarshalBinary(b *testing.B) {
+	var data []byte
+	var err error
+
+	counter := metrics.Counter("\n\t\x1btest", 101)
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		data, err = counter.MarshalBinary()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	_ = data
+	_ = err
+}
+
+func BenchmarkMetric_UnmarshalBinary(b *testing.B) {
+	var counter metrics.Metric
+	var err error
+
+	data := marshal(b, metrics.Counter("\n\t\x1btest", 101))
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		if err = counter.UnmarshalBinary(data); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	_ = counter
+	_ = err
 }
