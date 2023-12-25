@@ -23,7 +23,15 @@ lint:
 
 .PHONY: test
 test:
-	@go test -short -race -timeout=30s -count=1 -cover ./...
+	@go test -short -race -timeout=30s -count=1 -coverprofile=cover.out ./...
+
+.PHONY: cover
+cover:
+	@go tool cover -func=cover.out
+
+.PHONY: clean
+clean:
+	@rm -rf ./cmd/agent/agent ./cmd/server/server ./cover.out
 
 .PHONY: build
 build:
