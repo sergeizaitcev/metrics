@@ -94,8 +94,8 @@ func TestStorage_reopen(t *testing.T) {
 			t,
 			metric.Equal(got),
 			"want: %s\ngot: %s",
-			metric.String(),
-			got.String(),
+			metric.GoString(),
+			got.GoString(),
 		)
 	}
 

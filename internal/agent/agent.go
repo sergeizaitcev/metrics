@@ -282,6 +282,6 @@ func (a *Agent) sendRequest(req *http.Request) error {
 }
 
 func gracefulClose(res *http.Response) {
-	io.Copy(io.Discard, res.Body)
-	res.Body.Close()
+	_, _ = io.Copy(io.Discard, res.Body)
+	_ = res.Body.Close()
 }

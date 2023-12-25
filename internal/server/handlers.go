@@ -108,7 +108,7 @@ func all(s storage.Storage) httprouter.Handle {
 		w.WriteHeader(http.StatusOK)
 
 		for _, value := range values {
-			fmt.Fprintf(w, "%s=%s\n", value.Name(), value.Str())
+			fmt.Fprintf(w, "%s=%s\n", value.Name(), value.String())
 		}
 	}
 }
@@ -138,7 +138,7 @@ func get(s storage.Storage) httprouter.Handle {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.WriteHeader(http.StatusOK)
 
-		fmt.Fprintln(w, metric.Str())
+		fmt.Fprintln(w, metric.String())
 	}
 }
 

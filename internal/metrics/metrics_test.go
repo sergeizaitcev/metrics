@@ -46,7 +46,7 @@ func TestMetric(t *testing.T) {
 
 		require.Equal(t, "counter", counter.Kind().String())
 		require.Equal(t, "test", counter.Name())
-		require.Equal(t, "1", counter.Str())
+		require.Equal(t, "1", counter.String())
 
 		require.NotPanics(t, func() { counter.Int64() })
 		require.EqualValues(t, 1, counter.Int64())
@@ -57,7 +57,7 @@ func TestMetric(t *testing.T) {
 
 		require.Equal(t, "gauge", gauge.Kind().String())
 		require.Equal(t, "test", gauge.Name())
-		require.Equal(t, "1", gauge.Str())
+		require.Equal(t, "1", gauge.String())
 
 		require.NotPanics(t, func() { gauge.Float64() })
 		require.EqualValues(t, 1, gauge.Float64())

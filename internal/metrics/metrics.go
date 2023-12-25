@@ -113,18 +113,18 @@ func (m *Metric) Name() string {
 	return m.name
 }
 
-// String возвращает строковое представление метрики.
-func (m *Metric) String() string {
+// GoString возвращает строковое представление метрики.
+func (m *Metric) GoString() string {
 	return fmt.Sprintf(
 		"metric{kind=%s name=%s value=%s}",
 		m.kind.String(),
 		m.name,
-		m.Str(),
+		m.String(),
 	)
 }
 
-// Str возвращает значение метрики как string.
-func (m *Metric) Str() string {
+// String возвращает значение метрики как string.
+func (m *Metric) String() string {
 	switch m.kind {
 	case KindCounter:
 		return strconv.FormatInt(m.value.Int64(), 10)
