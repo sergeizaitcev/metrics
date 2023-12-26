@@ -13,54 +13,57 @@ import (
 	"github.com/sergeizaitcev/metrics/pkg/randutil"
 )
 
-var snapCnt atomic.Int64
-
-var getStats = func() func() hwstats {
-	var mu sync.Mutex
-	var stats hwstats
-	var created time.Time
-
-	return func() hwstats {
-		mu.Lock()
-		defer mu.Unlock()
-
-		if now := time.Now(); now.Sub(created) >= time.Second {
-			hw, err := newStats()
-			if err != nil {
-				panic(err)
-			}
-			created = now
-			stats = hw
-		}
-
-		return stats
-	}
-}()
+var (
+	snapCnt atomic.Int64
+	hw      = new(hwstats)
+)
 
 type hwstats struct {
+	mu      sync.Mutex
+	created time.Time
+	stats   stats
+}
+
+func (s *hwstats) getStats() stats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if now := time.Now(); now.Sub(s.created) >= time.Second {
+		hw, err := newStats()
+		if err != nil {
+			panic(err)
+		}
+		s.created = now
+		s.stats = hw
+	}
+
+	return s.stats
+}
+
+type stats struct {
 	FreeMemory  float64
 	TotalMemory float64
 	CPU         float64
 }
 
-func newStats() (hwstats, error) {
-	var hw hwstats
+func newStats() (stats, error) {
+	var s stats
 
 	vm, err := mem.VirtualMemory()
 	if err != nil {
-		return hw, fmt.Errorf("metrics: collecting memory statistics: %w", err)
+		return s, fmt.Errorf("metrics: collecting memory statistics: %w", err)
 	}
 
 	percentage, err := cpu.Percent(0, false)
 	if err != nil {
-		return hw, fmt.Errorf("metrics: collecting cpu statistics: %w", err)
+		return s, fmt.Errorf("metrics: collecting cpu statistics: %w", err)
 	}
 
-	hw.FreeMemory = float64(vm.Free)
-	hw.TotalMemory = float64(vm.Total)
-	hw.CPU = percentage[0]
+	s.FreeMemory = float64(vm.Free)
+	s.TotalMemory = float64(vm.Total)
+	s.CPU = percentage[0]
 
-	return hw, nil
+	return s, nil
 }
 
 // Snapshot возвращает снимок метрик всей системы.
@@ -68,7 +71,7 @@ func Snapshot() []Metric {
 	var ms runtime.MemStats
 
 	runtime.ReadMemStats(&ms)
-	stats := getStats()
+	stats := hw.getStats()
 
 	snapCnt.Add(1)
 
