@@ -85,14 +85,13 @@ func (r *gzipReader) Close() error {
 	if err != nil && firstErr == nil {
 		firstErr = err
 	}
-	return err
+	return firstErr
 }
 
 type gzipResponseWriter struct {
 	http.ResponseWriter
 	gw     *gzip.Writer
 	ctypes []string
-	cnt    int
 }
 
 func (w *gzipResponseWriter) WriteHeader(statusCode int) {

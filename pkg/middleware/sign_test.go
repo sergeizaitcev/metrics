@@ -29,7 +29,7 @@ func (m *mockSigner) Sign(b []byte) []byte {
 func TestSign(t *testing.T) {
 	handler := func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		w.WriteHeader(http.StatusOK)
-		io.Copy(w, r.Body)
+		_, _ = io.Copy(w, r.Body)
 	}
 
 	t.Run("no sign", func(t *testing.T) {

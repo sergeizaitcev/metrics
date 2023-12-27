@@ -65,7 +65,7 @@ func TestGzip(t *testing.T) {
 			handler := func(w http.ResponseWriter, _ *http.Request, _ httprouter.Params) {
 				w.Header().Set("Content-Type", tc.ctype)
 				w.WriteHeader(http.StatusOK)
-				w.Write(bytes.Repeat([]byte("test"), 2000))
+				_, _ = w.Write(bytes.Repeat([]byte("test"), 2000))
 			}
 
 			gzip := middleware.Use(handler, middleware.Gzip(flate.BestCompression))

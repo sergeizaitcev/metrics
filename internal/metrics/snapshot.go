@@ -3,7 +3,9 @@ package metrics
 import (
 	"fmt"
 	"runtime"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -11,33 +13,74 @@ import (
 	"github.com/sergeizaitcev/metrics/pkg/randutil"
 )
 
-var snapCnt atomic.Int64
+var (
+	snapCnt atomic.Int64
+	hw      = new(hwstats)
+)
+
+type hwstats struct {
+	mu      sync.Mutex
+	created time.Time
+	stats   stats
+}
+
+func (s *hwstats) getStats() stats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if now := time.Now(); now.Sub(s.created) >= time.Second {
+		hw, err := newStats()
+		if err != nil {
+			panic(err)
+		}
+		s.created = now
+		s.stats = hw
+	}
+
+	return s.stats
+}
+
+type stats struct {
+	FreeMemory  float64
+	TotalMemory float64
+	CPU         float64
+}
+
+func newStats() (stats, error) {
+	var s stats
+
+	vm, err := mem.VirtualMemory()
+	if err != nil {
+		return s, fmt.Errorf("metrics: collecting memory statistics: %w", err)
+	}
+
+	percentage, err := cpu.Percent(0, false)
+	if err != nil {
+		return s, fmt.Errorf("metrics: collecting cpu statistics: %w", err)
+	}
+
+	s.FreeMemory = float64(vm.Free)
+	s.TotalMemory = float64(vm.Total)
+	s.CPU = percentage[0]
+
+	return s, nil
+}
 
 // Snapshot возвращает снимок метрик всей системы.
 func Snapshot() []Metric {
 	var ms runtime.MemStats
+
 	runtime.ReadMemStats(&ms)
-
-	memstat, err := mem.VirtualMemory()
-	if err != nil {
-		err = fmt.Errorf("metrics: collecting memory statistics: %w", err)
-		panic(err)
-	}
-
-	cpustat, err := cpu.Percent(0, false)
-	if err != nil {
-		err = fmt.Errorf("metrics: collecting cpu statistics: %w", err)
-		panic(err)
-	}
+	stats := hw.getStats()
 
 	snapCnt.Add(1)
 
 	return []Metric{
 		Gauge("Alloc", float64(ms.Alloc)),
 		Gauge("BuckHashSys", float64(ms.BuckHashSys)),
-		Gauge("CPUutilization1", cpustat[0]),
+		Gauge("CPUutilization1", stats.CPU),
 		Gauge("Frees", float64(ms.Frees)),
-		Gauge("FreeMemory", float64(memstat.Free)),
+		Gauge("FreeMemory", stats.FreeMemory),
 		Gauge("GCCPUFraction", ms.GCCPUFraction),
 		Gauge("GCSys", float64(ms.GCSys)),
 		Gauge("HeapAlloc", float64(ms.HeapAlloc)),
@@ -64,6 +107,6 @@ func Snapshot() []Metric {
 		Gauge("StackSys", float64(ms.StackSys)),
 		Gauge("Sys", float64(ms.Sys)),
 		Gauge("TotalAlloc", float64(ms.TotalAlloc)),
-		Gauge("TotalMemory", float64(memstat.Total)),
+		Gauge("TotalMemory", stats.TotalMemory),
 	}
 }

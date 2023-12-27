@@ -22,18 +22,17 @@ const (
 	KindGauge
 )
 
-var kindValues = map[Kind]string{
-	KindUnknown: "unknown",
-	KindCounter: "counter",
-	KindGauge:   "gauge",
+var kindValues = []string{
+	"unknown",
+	"counter",
+	"gauge",
 }
 
 func (k Kind) String() string {
-	v, ok := kindValues[k]
-	if !ok {
-		return kindValues[KindUnknown]
+	if k >= 1 && int(k) < len(kindValues) {
+		return kindValues[k]
 	}
-	return v
+	return kindValues[KindUnknown]
 }
 
 // ParseKind парсит строку и возвращает тип метрики.
@@ -42,9 +41,10 @@ func ParseKind(s string) Kind {
 		return KindUnknown
 	}
 	s0 := strings.ToLower(s)
-	for k, v := range kindValues {
+	for i := 0; i < len(kindValues); i++ {
+		v := kindValues[i]
 		if v == s0 {
-			return k
+			return Kind(i)
 		}
 	}
 	return KindUnknown
@@ -85,7 +85,7 @@ type Metric struct {
 	value value
 }
 
-// Counter возращает метрику типа счётчик с именем name и значением value.
+// Counter возвращает метрику типа счётчик с именем name и значением value.
 func Counter(name string, value int64) Metric {
 	return Metric{
 		kind:  KindCounter,
@@ -94,7 +94,7 @@ func Counter(name string, value int64) Metric {
 	}
 }
 
-// Gauge возращает метрику типа датчик с именем name и значением value.
+// Gauge возвращает метрику типа датчик с именем name и значением value.
 func Gauge(name string, value float64) Metric {
 	return Metric{
 		kind:  KindGauge,
@@ -113,18 +113,18 @@ func (m *Metric) Name() string {
 	return m.name
 }
 
-// String возвращает строковое представление метрики.
-func (m *Metric) String() string {
+// GoString возвращает строковое представление метрики.
+func (m *Metric) GoString() string {
 	return fmt.Sprintf(
 		"metric{kind=%s name=%s value=%s}",
 		m.kind.String(),
 		m.name,
-		m.Str(),
+		m.String(),
 	)
 }
 
-// Str возвращает значение метрики как string.
-func (m *Metric) Str() string {
+// String возвращает значение метрики как string.
+func (m *Metric) String() string {
 	switch m.kind {
 	case KindCounter:
 		return strconv.FormatInt(m.value.Int64(), 10)

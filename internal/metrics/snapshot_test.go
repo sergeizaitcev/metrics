@@ -23,3 +23,9 @@ func TestSnapshot(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkSnapshot(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = metrics.Snapshot()
+	}
+}

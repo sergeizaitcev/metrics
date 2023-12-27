@@ -46,7 +46,7 @@ func TestMetric(t *testing.T) {
 
 		require.Equal(t, "counter", counter.Kind().String())
 		require.Equal(t, "test", counter.Name())
-		require.Equal(t, "1", counter.Str())
+		require.Equal(t, "1", counter.String())
 
 		require.NotPanics(t, func() { counter.Int64() })
 		require.EqualValues(t, 1, counter.Int64())
@@ -57,7 +57,7 @@ func TestMetric(t *testing.T) {
 
 		require.Equal(t, "gauge", gauge.Kind().String())
 		require.Equal(t, "test", gauge.Name())
-		require.Equal(t, "1", gauge.Str())
+		require.Equal(t, "1", gauge.String())
 
 		require.NotPanics(t, func() { gauge.Float64() })
 		require.EqualValues(t, 1, gauge.Float64())
@@ -283,15 +283,15 @@ func TestMetric_MarshalBinary(t *testing.T) {
 	}
 }
 
-func TestMetric_UnmarshalBinary(t *testing.T) {
-	marshal := func(t *testing.T, m metrics.Metric) []byte {
-		b, err := m.MarshalBinary()
-		if err != nil {
-			t.Fatal(err)
-		}
-		return b
+func marshal(t testing.TB, m metrics.Metric) []byte {
+	b, err := m.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
 	}
+	return b
+}
 
+func TestMetric_UnmarshalBinary(t *testing.T) {
 	testCases := []struct {
 		name       string
 		data       []byte
@@ -351,5 +351,48 @@ func TestMetric_UnmarshalBinary(t *testing.T) {
 				require.True(t, tc.wantMetric.Equal(got))
 			}
 		})
+	}
+}
+
+func BenchmarkParseKind(b *testing.B) {
+	b.Run("gauge", func(b *testing.B) {
+		const value = "gauge"
+		for i := 0; i < b.N; i++ {
+			_ = metrics.ParseKind(value)
+		}
+	})
+
+	b.Run("counter", func(b *testing.B) {
+		const value = "counter"
+		for i := 0; i < b.N; i++ {
+			_ = metrics.ParseKind(value)
+		}
+	})
+}
+
+func BenchmarkMetric_MarshalBinary(b *testing.B) {
+	counter := metrics.Counter("\n\t\x1btest", 101)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, err := counter.MarshalBinary()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkMetric_UnmarshalBinary(b *testing.B) {
+	data := marshal(b, metrics.Counter("\n\t\x1btest", 101))
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		var counter metrics.Metric
+		err := counter.UnmarshalBinary(data)
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }

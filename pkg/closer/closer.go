@@ -81,13 +81,13 @@ func convertCloseFunc(closeFunc any) func(context.Context) error {
 		panic(&unsupportedError{closeFunc})
 	}
 
-	switch impl := rv.Interface().(type) {
+	switch f := closeFunc.(type) {
 	case func():
-		return func(context.Context) error { impl(); return nil }
+		return func(context.Context) error { f(); return nil }
 	case func() error:
-		return func(context.Context) error { return impl() }
+		return func(context.Context) error { return f() }
 	case func(context.Context) error:
-		return impl
+		return f
 	default:
 		panic(&unsupportedError{closeFunc})
 	}
