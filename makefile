@@ -1,4 +1,11 @@
+MODULE := $(shell head -n1 go.mod | sed -e 's/module //')
 BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD)
+# VERSION := $(shell git describe --tags)
+VERSION := $(BRANCH_NAME)
+DATE := $(shell date +'%Y/%m/%d %H:%M:%S')
+COMMIT := $(shell git rev-parse --short HEAD)
+GO_BUILD := go build -ldflags "-X '$(MODULE)/version.Build=$(VERSION)' -X '$(MODULE)/version.Date=$(DATE)' -X '$(MODULE)/version.Commit=$(COMMIT)'"
+
 SERVER_PORT := $(shell random unused-port)
 TEMP_FILE := $(shell random tempfile)
 DATABASE_DSN := postgres://postgres:postgres@localhost:5432/practicum?sslmode=disable
@@ -35,8 +42,8 @@ clean:
 
 .PHONY: build
 build:
-	@go build -o ./cmd/agent/agent ./cmd/agent
-	@go build -o ./cmd/server/server ./cmd/server
+	@$(GO_BUILD) -o ./cmd/agent/agent ./cmd/agent
+	@$(GO_BUILD) -o ./cmd/server/server ./cmd/server
 
 .PHONY: autotest
 autotest: build $(BRANCH_NAME)
