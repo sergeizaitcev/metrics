@@ -6,6 +6,11 @@ DATE := $(shell date +'%Y/%m/%d %H:%M:%S')
 COMMIT := $(shell git rev-parse --short HEAD)
 GO_BUILD := go build -ldflags "-X '$(MODULE)/version.Build=$(VERSION)' -X '$(MODULE)/version.Date=$(DATE)' -X '$(MODULE)/version.Commit=$(COMMIT)'"
 
+STATIC_LINT := $(GOPATH)/bin/staticlint
+
+$(STATIC_LINT):
+	@go install ./cmd/staticlint
+
 SERVER_PORT := $(shell random unused-port)
 TEMP_FILE := $(shell random tempfile)
 DATABASE_DSN := postgres://postgres:postgres@localhost:5432/practicum?sslmode=disable
@@ -25,8 +30,9 @@ down:
 	@docker-compose -f ./scripts/docker-compose.yml down
 
 .PHONY: lint
-lint:
+lint: $(STATIC_LINT)
 	@go vet -vettool=$(shell which statictest) ./...
+	@go vet -vettool=$(shell which staticlint) ./...
 
 .PHONY: test
 test:
