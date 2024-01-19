@@ -12,5 +12,5 @@ var (
 
 // Print печатает в стандартный вывод информацию о сборке.
 func Print() {
-	fmt.Printf("Build version: %s\nBuild date: %s\nBuild commit: %s\n", Build, Date, Commit)
+	fmt.Printf("Build version: %s\nBuild date: %s\nBuild commit: %s\n\n", Build, Date, Commit)
 }

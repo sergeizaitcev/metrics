@@ -2,10 +2,7 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/sergeizaitcev/metrics/internal/configs"
@@ -13,21 +10,11 @@ import (
 )
 
 // Run инициализирует агент сбора метрик и запускает его.
-func Run() error {
-	config, err := configs.ParseAgent()
-	if err != nil {
-		return fmt.Errorf("parse config: %w", err)
-	}
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-
+func Run(ctx context.Context, c *configs.Agent) error {
 	opts := &AgentOpts{
-		Logger:  logging.New(os.Stdout, config.Level),
+		Logger:  logging.New(os.Stdout, c.Level),
 		Timeout: 5 * time.Second,
 	}
-
-	agent := New(config, opts)
-
+	agent := New(c, opts)
 	return agent.Run(ctx)
 }
