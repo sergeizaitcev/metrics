@@ -1,8 +1,10 @@
 package configs
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
+	"io"
 	"time"
 
 	"github.com/sergeizaitcev/metrics/pkg/commands"
@@ -11,19 +13,26 @@ import (
 
 var DefaultAgent = &Agent{
 	Level:          logging.LevelInfo,
+	ConfigPath:     "",
 	Address:        "localhost:8080",
 	SHA256Key:      "",
-	PublicKeyPath:  "server.rsa.pub",
+	PublicKeyPath:  "",
 	PollInterval:   10 * time.Second,
 	ReportInterval: 2 * time.Second,
 	RateLimit:      1,
 }
 
-var _ commands.Config = (*Agent)(nil)
+var (
+	_ commands.Config = (*Agent)(nil)
+	_ io.ReaderFrom   = (*Agent)(nil)
+)
 
 // Agent определяет конфиг для агента.
 type Agent struct {
 	commands.UnimplementedConfig
+
+	// Путь к файлу конфигурации.
+	ConfigPath commands.ConfigPath `env:"CONFIG" json:"-"`
 
 	// Уровень логирования.
 	//
@@ -59,7 +68,17 @@ type Agent struct {
 	pollInternval, reportInterval *int64
 }
 
+func (a *Agent) ReadFrom(r io.Reader) (int64, error) {
+	dec := json.NewDecoder(r)
+	err := dec.Decode(a)
+	if err != nil {
+		return 0, err
+	}
+	return dec.InputOffset(), nil
+}
+
 func (a *Agent) SetFlags(fs *flag.FlagSet) {
+	fs.Var(&a.ConfigPath, "c", "path to config")
 	fs.TextVar(&a.Level, "v", DefaultAgent.Level, "logging level")
 	fs.StringVar(&a.Address, "a", DefaultAgent.Address, "server address")
 	fs.StringVar(&a.SHA256Key, "k", DefaultAgent.SHA256Key, "secret sha256 key")
@@ -70,7 +89,6 @@ func (a *Agent) SetFlags(fs *flag.FlagSet) {
 		"path to public key",
 	)
 	fs.IntVar(&a.RateLimit, "l", DefaultAgent.RateLimit, "rate limit")
-
 	a.pollInternval = fs.Int64(
 		"p",
 		second(DefaultAgent.PollInterval),
@@ -92,9 +110,6 @@ func (a *Agent) Validate() error {
 	}
 	if a.Address == "" {
 		return errors.New("address must be not empty")
-	}
-	if a.PublicKeyPath == "" {
-		return errors.New("public key must be not empty")
 	}
 	if a.PollInterval <= 0 {
 		return errors.New("poll interval must be is greater than zero")

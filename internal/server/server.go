@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/rsa"
 	"fmt"
 	"net"
 
@@ -19,6 +20,7 @@ var defaultOpts = &ServerOpts{
 // ServerOpts определяет не обязательные параметры для Server.
 type ServerOpts struct {
 	Logger *logging.Logger
+	Key    *rsa.PrivateKey
 }
 
 // Server определяет сервер сбора метрик.
@@ -53,7 +55,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		}
 	}()
 
-	storage, err := storage.NewStorage(s.config.Storage)
+	storage, err := storage.NewStorage(s.config)
 	if err != nil {
 		return fmt.Errorf("init storage: %w", err)
 	}

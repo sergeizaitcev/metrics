@@ -225,8 +225,10 @@ func (cmd *Command[T]) lookupFlagValue(x reflect.Value) (string, error) {
 	var name string
 
 	cmd.fs.VisitAll(func(f *flag.Flag) {
-		// f.Value априори всегда является указателем.
-		y := reflect.ValueOf(f.Value)
+		y := reflect.ValueOf(&f.Value).Elem()
+		if y.Kind() != reflect.Pointer {
+			y = y.Addr()
+		}
 		if x.UnsafePointer() == y.UnsafePointer() {
 			name = f.Name
 		}

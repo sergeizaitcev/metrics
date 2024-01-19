@@ -1,0 +1,10 @@
+{
+  "level": "debug",
+  "address": "localhost:8080",
+  "key": "mykey",
+  "private_key_path": "server.rsa",
+  "database_dsn": "",
+  "file_storage_path": "/tmp/metrics-db.wal",
+  "store_interval": 10,
+  "restore": true
+}

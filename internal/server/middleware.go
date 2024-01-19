@@ -10,9 +10,13 @@ import (
 )
 
 // NOTE: необходимо соблюдать порядок мидлварей в следующей последовательности
-// gzip -> sign -> trace.
+// rsa -> gzip -> sign -> trace.
 func newMiddlewares(config *configs.Server, opts *ServerOpts) []middleware.Middleware {
 	var middlewares []middleware.Middleware
+
+	if opts.Key != nil {
+		middlewares = append(middlewares, middleware.RSA(opts.Key))
+	}
 
 	middlewares = append(
 		middlewares,

@@ -1,0 +1,8 @@
+{
+  "level": "debug",
+  "address": "localhost:8080",
+  "key": "mykey",
+  "public_key_path": "server.rsa.pub",
+  "poll_interval": 5,
+  "report_interval": 1
+}
