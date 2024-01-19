@@ -19,7 +19,7 @@ func Bytes(n int) []byte {
 	i := 0
 
 	for len(buf) < n {
-		idx := rnd.Intn(len(ascii) - 1)
+		idx := Rand.Intn(len(ascii) - 1)
 		char := ascii[idx]
 		if i == 0 && '0' <= char && char <= '9' {
 			continue

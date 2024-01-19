@@ -102,7 +102,7 @@ func Snapshot() []Metric {
 		Gauge("OtherSys", float64(ms.OtherSys)),
 		Gauge("PauseTotalNs", float64(ms.PauseTotalNs)),
 		Counter("PollCount", snapCnt.Load()),
-		Gauge("RandomValue", randutil.Float64()),
+		Gauge("RandomValue", randutil.Rand.Float64()),
 		Gauge("StackInuse", float64(ms.StackInuse)),
 		Gauge("StackSys", float64(ms.StackSys)),
 		Gauge("Sys", float64(ms.Sys)),

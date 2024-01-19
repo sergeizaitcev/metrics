@@ -7,7 +7,7 @@ import (
 	mathrand "math/rand"
 )
 
-var rnd *mathrand.Rand
+var Rand *mathrand.Rand
 
 func init() {
 	buf := make([]byte, 8)
@@ -16,5 +16,5 @@ func init() {
 		panic(err)
 	}
 	src := mathrand.NewSource(int64(binary.LittleEndian.Uint64(buf)))
-	rnd = mathrand.New(src)
+	Rand = mathrand.New(src)
 }
