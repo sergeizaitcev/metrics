@@ -27,7 +27,7 @@ type Storage interface {
 }
 
 // NewStorage возвращает новый экземпляр хранилища метрик.
-func NewStorage(config *configs.Storage) (Storage, error) {
+func NewStorage(config *configs.Server) (Storage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -38,7 +38,7 @@ func NewStorage(config *configs.Storage) (Storage, error) {
 	return initLocal(ctx, config)
 }
 
-func initPostgres(ctx context.Context, config *configs.Storage) (*Postgres, error) {
+func initPostgres(ctx context.Context, config *configs.Server) (*Postgres, error) {
 	s, err := NewPostgres(config.DatabaseDSN)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func initPostgres(ctx context.Context, config *configs.Storage) (*Postgres, erro
 	return s, nil
 }
 
-func initLocal(ctx context.Context, config *configs.Storage) (*Local, error) {
+func initLocal(ctx context.Context, config *configs.Server) (*Local, error) {
 	opts := &LocalOpts{
 		StoreInterval: config.StoreInterval,
 		Restore:       config.Restore,

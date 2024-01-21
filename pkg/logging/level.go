@@ -23,20 +23,11 @@ const (
 )
 
 func (l Level) MarshalText() ([]byte, error) {
-	s := l.String()
-	b := make([]byte, len(`""`)+len(s))
-	b = append(append(b, '"'), s...)
-	return append(b, '"'), nil
+	return []byte(l.String()), nil
 }
 
 func (l *Level) UnmarshalText(text []byte) error {
 	var offset Level
-
-	if len(text) < 2 || text[0] != '"' || text[len(text)-1] != '"' {
-		return errors.New("level is not text")
-	}
-
-	text = text[1 : len(text)-2]
 
 	n := bytes.IndexByte(text, '+')
 	if n == 0 || n == len(text)-1 {

@@ -50,8 +50,8 @@ func TestServer(t *testing.T) {
 			res, err := http.Get(u.String())
 			require.NoError(t, err)
 
-			io.Copy(io.Discard, res.Body)
-			res.Body.Close()
+			_, _ = io.Copy(io.Discard, res.Body)
+			_ = res.Body.Close()
 
 			require.Equal(t, http.StatusOK, res.StatusCode)
 		}

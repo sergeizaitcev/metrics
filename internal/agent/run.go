@@ -2,32 +2,29 @@ package agent
 
 import (
 	"context"
-	"fmt"
+	"crypto/rsa"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/sergeizaitcev/metrics/internal/configs"
 	"github.com/sergeizaitcev/metrics/pkg/logging"
+	"github.com/sergeizaitcev/metrics/pkg/rsautil"
 )
 
 // Run инициализирует агент сбора метрик и запускает его.
-func Run() error {
-	config, err := configs.ParseAgent()
-	if err != nil {
-		return fmt.Errorf("parse config: %w", err)
+func Run(ctx context.Context, c *configs.Agent) (err error) {
+	var key *rsa.PublicKey
+	if c.PublicKeyPath != "" {
+		key, err = rsautil.Public(c.PublicKeyPath)
+		if err != nil {
+			return err
+		}
 	}
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
-
 	opts := &AgentOpts{
-		Logger:  logging.New(os.Stdout, config.Level),
+		Logger:  logging.New(os.Stdout, c.Level),
 		Timeout: 5 * time.Second,
+		Key:     key,
 	}
-
-	agent := New(config, opts)
-
+	agent := New(c, opts)
 	return agent.Run(ctx)
 }

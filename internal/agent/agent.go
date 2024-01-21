@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"context"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/pkg/logging"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
+	"github.com/sergeizaitcev/metrics/pkg/rsautil"
 	"github.com/sergeizaitcev/metrics/pkg/sign"
 )
 
@@ -38,6 +40,9 @@ type AgentOpts struct {
 
 	// Пользовательский транспорт.
 	Transport http.RoundTripper
+
+	// Публичный ключ для асиметричного шифрования.
+	Key *rsa.PublicKey
 }
 
 // Agent определяет агент для сбора и отправки метрик на сервер.
@@ -45,6 +50,7 @@ type Agent struct {
 	config *configs.Agent
 	client *http.Client
 	logger *logging.Logger
+	key    *rsa.PublicKey
 }
 
 // New возвращает новый экземпляр Agent.
@@ -69,6 +75,7 @@ func New(config *configs.Agent, opts *AgentOpts) *Agent {
 		config: config,
 		client: client,
 		logger: opts.Logger,
+		key:    opts.Key,
 	}
 }
 
@@ -199,7 +206,7 @@ func (a *Agent) prepareRequest(
 		Path:   "/updates/",
 	}
 
-	body, err := newBody(values)
+	body, err := a.newBody(values)
 	if err != nil {
 		return nil, fmt.Errorf("create a new body: %w", err)
 	}
@@ -222,16 +229,29 @@ func (a *Agent) prepareRequest(
 	return req, nil
 }
 
-func newBody(values []metrics.Metric) (*bytes.Buffer, error) {
+func (a *Agent) newBody(values []metrics.Metric) (*bytes.Buffer, error) {
+	b, err := json.Marshal(&values)
+	if err != nil {
+		return nil, fmt.Errorf("encoding metrics: %w", err)
+	}
+
+	if a.key != nil {
+		b2, err := rsautil.Encrypt(a.key, b)
+		if err != nil {
+			return nil, fmt.Errorf("encrypting metrics: %w", err)
+		}
+		b = b2
+	}
+
 	buf := bytes.NewBuffer(nil)
 
 	// NOTE: проверка на ошибку не требуется,
 	// т.к. flate.BestCompression валидное значение.
 	gw, _ := gzip.NewWriterLevel(buf, flate.BestCompression)
 
-	err := json.NewEncoder(gw).Encode(&values)
+	_, err = gw.Write(b)
 	if err != nil {
-		return nil, fmt.Errorf("encoding metrics: %w", err)
+		return nil, fmt.Errorf("compressing metrics: %w", err)
 	}
 
 	err = gw.Close()
@@ -257,6 +277,7 @@ func (a *Agent) sendRequest(req *http.Request) error {
 	for i := 1; i < 4; i++ {
 		res, err := a.client.Do(req)
 		if err == nil {
+			a.logger.Log(logging.LevelDebug, "", "status_code", res.StatusCode)
 			gracefulClose(res)
 			return nil
 		}

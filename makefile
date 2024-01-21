@@ -11,6 +11,11 @@ STATIC_LINT := $(GOPATH)/bin/staticlint
 $(STATIC_LINT):
 	@go install ./cmd/staticlint
 
+RSA_KEYGEN := $(GOPATH)/bin/rsakeygen
+
+$(RSA_KEYGEN):
+	@go install ./cmd/rsakeygen
+
 SERVER_PORT := $(shell random unused-port)
 TEMP_FILE := $(shell random tempfile)
 DATABASE_DSN := postgres://postgres:postgres@localhost:5432/practicum?sslmode=disable
@@ -20,6 +25,12 @@ ADDRESS := localhost:$(SERVER_PORT)
 
 .PHONY: all
 all: test lint autotest
+
+.PHONY: keygen
+keygen: $(RSA_KEYGEN)
+ifeq ("$(wildcard server.rsa")", "")
+	@$(RSA_KEYGEN) -b 4096 -f server
+endif
 
 .PHONY: up
 up:
