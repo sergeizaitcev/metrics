@@ -1,35 +1,84 @@
 package rsautil_test
 
 import (
+	"crypto/rsa"
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 
 	"github.com/sergeizaitcev/metrics/pkg/rsautil"
 )
 
-var (
-	privateKey = filepath.Join("testdata", "test.rsa")
-	publicKey  = filepath.Join("testdata", "test.rsa.pub")
-)
+type RsaSuite struct {
+	suite.Suite
+
+	private *rsa.PrivateKey
+	public  *rsa.PublicKey
+
+	prefix         string
+	privateKeyPath string
+	publicKeyPath  string
+}
 
 func TestRSA(t *testing.T) {
-	key, err := rsautil.Private(privateKey)
-	require.NoError(t, err)
-	require.NotNil(t, key)
+	suite.Run(t, new(RsaSuite))
+}
 
-	pub, err := rsautil.Public(publicKey)
-	require.NoError(t, err)
-	require.NotNil(t, pub)
+func (suite *RsaSuite) SetupSuite() {
+	dir := suite.T().TempDir()
+	suite.prefix = filepath.Join(dir, "test")
+	suite.privateKeyPath = suite.prefix + ".rsa"
+	suite.publicKeyPath = suite.prefix + ".rsa.pub"
+}
 
-	want := []byte("testtesttest")
+func (suite *RsaSuite) TestA_SaveToFile() {
+	var key *rsa.PrivateKey
+	var err error
 
-	cipherText, err := rsautil.Encrypt(pub, want)
-	require.NoError(t, err)
-	require.NotEqual(t, want, cipherText)
+	suite.Run("generate", func() {
+		key, err = rsautil.Generate(2048)
+		suite.NoError(err)
+		suite.NotNil(key)
+	})
 
-	got, err := rsautil.Decrypt(key, cipherText)
-	require.NoError(t, err)
-	require.Equal(t, want, got)
+	suite.Run("save", func() {
+		err = rsautil.Save(key, suite.prefix)
+		suite.NoError(err)
+	})
+}
+
+func (suite *RsaSuite) TestB_ReadFromFile() {
+	var err error
+
+	suite.Run("private", func() {
+		suite.private, err = rsautil.Private(suite.privateKeyPath)
+		suite.NoError(err)
+		suite.NotNil(suite.private)
+	})
+
+	suite.Run("public", func() {
+		suite.public, err = rsautil.Public(suite.publicKeyPath)
+		suite.NoError(err)
+		suite.NotNil(suite.public)
+	})
+}
+
+func (suite *RsaSuite) TestC_EncryptingMessage() {
+	var cipher []byte
+	var err error
+
+	message := []byte("message")
+
+	suite.Run("encrypt", func() {
+		cipher, err = rsautil.Encrypt(suite.public, message)
+		suite.NoError(err)
+		suite.NotEqual(message, cipher)
+	})
+
+	suite.Run("decrypt", func() {
+		got, err := rsautil.Decrypt(suite.private, cipher)
+		suite.NoError(err)
+		suite.Equal(message, got)
+	})
 }

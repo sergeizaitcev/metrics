@@ -29,7 +29,7 @@ all: test lint autotest
 .PHONY: keygen
 keygen: $(RSA_KEYGEN)
 ifeq ("$(wildcard server.rsa")", "")
-	@$(RSA_KEYGEN) -b 4096 -f server
+	@$(RSA_KEYGEN) -b 4096 -p server
 endif
 
 .PHONY: up
