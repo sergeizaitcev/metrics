@@ -51,7 +51,7 @@ func NewLocal(filename string, opts *LocalOpts) (*Local, error) {
 		flags |= os.O_TRUNC
 	}
 
-	fd, err := os.OpenFile(filename, flags, 0644)
+	fd, err := os.OpenFile(filename, flags, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("local: %w", err)
 	}
