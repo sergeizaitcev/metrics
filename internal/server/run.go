@@ -14,7 +14,7 @@ import (
 func Run(ctx context.Context, c *configs.Server) (err error) {
 	var key *rsa.PrivateKey
 	if c.PrivateKeyPath != "" {
-		key, err = rsautil.Private(c.PrivateKeyPath)
+		key, err = rsautil.PrivateKeyFrom(c.PrivateKeyPath)
 		if err != nil {
 			return err
 		}

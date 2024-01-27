@@ -3,39 +3,46 @@ package httpserver_test
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/nettest"
 
 	"github.com/sergeizaitcev/metrics/pkg/httpserver"
+	"github.com/sergeizaitcev/metrics/pkg/tcputil"
 	"github.com/sergeizaitcev/metrics/pkg/testutil"
 )
 
-func TestServer(t *testing.T) {
-	lis, err := nettest.NewLocalListener("tcp")
+func httpServer(t *testing.T) (srv *httpserver.Server, host string) {
+	port, err := tcputil.FreePort()
 	require.NoError(t, err)
-	t.Cleanup(func() { lis.Close() })
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/test", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	opts := &httpserver.ServerOpts{
-		Listener: lis,
-	}
+	host = net.JoinHostPort("localhost", port)
 
-	s := httpserver.New(mux, opts)
+	srv = httpserver.New(&http.Server{
+		Addr:    host,
+		Handler: mux,
+	})
+
+	return srv, host
+}
+
+func TestServer(t *testing.T) {
+	srv, host := httpServer(t)
 	errc := make(chan error)
 
 	ctx, cancel := context.WithTimeout(testutil.Context(t), 3*time.Second)
 	t.Cleanup(cancel)
 
-	go func() { errc <- s.ListenAndServe(ctx) }()
+	go func() { errc <- srv.ListenAndServe(ctx) }()
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -43,7 +50,7 @@ func TestServer(t *testing.T) {
 		case <-time.After(time.Second):
 			u := &url.URL{
 				Scheme: "http",
-				Host:   lis.Addr().String(),
+				Host:   host,
 				Path:   "/test",
 			}
 

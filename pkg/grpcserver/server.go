@@ -1,20 +1,24 @@
-package httpserver
+package grpcserver
 
 import (
 	"context"
 	"net"
-	"net/http"
-	"time"
+
+	"google.golang.org/grpc"
 )
 
-// Server определяет надстройку над HTTP-сервером.
+// Server определяет надстройку над gRPC-сервером.
 type Server struct {
-	srv *http.Server
+	addr string
+	srv  *grpc.Server
 }
 
 // New возвращает новый экземпляр Server.
-func New(srv *http.Server) *Server {
-	return &Server{srv: srv}
+func New(addr string, srv *grpc.Server) *Server {
+	return &Server{
+		addr: addr,
+		srv:  srv,
+	}
 }
 
 // ListenAndServe слушает входящие запросы и блокируется до тех пор, пока
@@ -29,27 +33,24 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		return err
 	}
 
-	err := s.Close()
+	s.Close()
 	<-errc
 
-	return err
+	return nil
 }
 
-// Close завершает работу HTTP-сервера.
-func (s *Server) Close() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	return s.srv.Shutdown(ctx)
+// Close завершает работу gRPC-сервера.
+func (s *Server) Close() {
+	s.srv.GracefulStop()
 }
 
 // Serve слушает входящие запросы и блокируется до тех пор, пока не сработает
 // метод Close или функция не вернёт ошибку.
 func (s *Server) Serve(ctx context.Context) error {
-	lis, err := net.Listen("tcp", s.srv.Addr)
+	lis, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		return err
 	}
 	defer lis.Close()
-	s.srv.BaseContext = func(net.Listener) context.Context { return ctx }
 	return s.srv.Serve(lis)
 }

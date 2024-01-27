@@ -17,6 +17,7 @@ var DefaultServer = &Server{
 	Level:           logging.LevelInfo,
 	ConfigPath:      "",
 	Address:         "localhost:8080",
+	StreamAddress:   "localhost:8090",
 	SHA256Key:       "",
 	PrivateKeyPath:  "",
 	DatabaseDSN:     "",
@@ -44,6 +45,11 @@ type Server struct {
 	//
 	// По умолчанию "localhost:8080".
 	Address string `env:"ADDRESS" json:"address"`
+
+	// Адрес стриминг-сервера.
+	//
+	// По умолчанию "localhost:8090".
+	StreamAddress string `env:"STREAM_ADDRESS" json:"stream_address"`
 
 	// Ключ подписи данных. Если ключ пуст, то данные не подписываются.
 	SHA256Key string `env:"KEY" json:"key"`
@@ -96,6 +102,9 @@ func (s *Server) Validate() error {
 	if s.Address == "" {
 		return errors.New("address must be not empty")
 	}
+	if s.StreamAddress == "" {
+		return errors.New("stream address must be not empty")
+	}
 	if s.StoreInterval < 0 {
 		return errors.New("store interval must be is greater than or equal to zero")
 	}
@@ -112,6 +121,7 @@ func (s *Server) SetFlags(fs *flag.FlagSet) {
 	fs.Var(&s.ConfigPath, "c", "path to config")
 	fs.TextVar(&s.Level, "v", DefaultServer.Level, "logging level")
 	fs.StringVar(&s.Address, "a", DefaultServer.Address, "server address")
+	fs.StringVar(&s.StreamAddress, "s", DefaultServer.StreamAddress, "stream server address")
 	fs.StringVar(&s.SHA256Key, "k", DefaultServer.SHA256Key, "secret sha256 key")
 	fs.StringVar(
 		&s.PrivateKeyPath,

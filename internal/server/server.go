@@ -4,11 +4,16 @@ import (
 	"context"
 	"crypto/rsa"
 	"fmt"
-	"net"
+	"net/http"
 
+	"google.golang.org/grpc"
+	_ "google.golang.org/grpc/encoding/gzip"
+
+	pb "github.com/sergeizaitcev/metrics/api/proto/metrics"
 	"github.com/sergeizaitcev/metrics/internal/configs"
 	"github.com/sergeizaitcev/metrics/internal/storage"
 	"github.com/sergeizaitcev/metrics/pkg/closer"
+	"github.com/sergeizaitcev/metrics/pkg/grpcserver"
 	"github.com/sergeizaitcev/metrics/pkg/httpserver"
 	"github.com/sergeizaitcev/metrics/pkg/logging"
 )
@@ -61,19 +66,36 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 	gracefulClose.Add(ctx, storage.Close)
 
-	lis, err := net.Listen("tcp", s.config.Address)
-	if err != nil {
-		return fmt.Errorf("listen to %s: %w", s.config.Address, err)
+	httpSrv := s.httpServer(ctx, storage)
+	gracefulClose.Add(ctx, httpSrv.Close)
+
+	grpcSrv := s.grpcServer(ctx, storage)
+	gracefulClose.Add(ctx, grpcSrv.Close)
+
+	errChan := make(chan error, 2)
+
+	go func() { errChan <- httpSrv.ListenAndServe(ctx) }()
+	go func() { errChan <- grpcSrv.ListenAndServe(ctx) }()
+
+	select {
+	case <-ctx.Done():
+	case err = <-errChan:
+		return err
 	}
-	gracefulClose.Add(ctx, lis.Close)
 
-	mws := newMiddlewares(s.config, s.opts)
-	handler := NewHandler(storage, mws...)
+	return nil
+}
 
-	srv := httpserver.New(handler, &httpserver.ServerOpts{
-		Listener: lis,
-	})
-	gracefulClose.Add(ctx, srv.Close)
+func (s *Server) httpServer(ctx context.Context, storage storage.Storage) *httpserver.Server {
+	srv := &http.Server{
+		Addr:    s.config.Address,
+		Handler: NewHandler(storage, s.middlewares()...),
+	}
+	return httpserver.New(srv)
+}
 
-	return srv.ListenAndServe(ctx)
+func (s *Server) grpcServer(ctx context.Context, storage storage.Storage) *grpcserver.Server {
+	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(s.interceptors()...))
+	pb.RegisterMetricsServer(srv, newUpdateServer(s.config, storage))
+	return grpcserver.New(s.config.StreamAddress, srv)
 }

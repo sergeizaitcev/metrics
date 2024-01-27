@@ -20,6 +20,7 @@ var DefaultAgent = &Agent{
 	PollInterval:   10 * time.Second,
 	ReportInterval: 2 * time.Second,
 	RateLimit:      1,
+	GRPCEnabled:    false,
 }
 
 var (
@@ -65,6 +66,11 @@ type Agent struct {
 	// По умолчанию 1.
 	RateLimit int `env:"RATE_LIMIT" json:"rate_limit"`
 
+	// Передача метрик на gRPC-сервер.
+	//
+	// По умолчанию false.
+	GRPCEnabled bool `env:"GRPC_ENABLED" json:"grpc_enabled"`
+
 	pollInternval, reportInterval *int64
 }
 
@@ -89,6 +95,7 @@ func (a *Agent) SetFlags(fs *flag.FlagSet) {
 		"path to public key",
 	)
 	fs.IntVar(&a.RateLimit, "l", DefaultAgent.RateLimit, "rate limit")
+	fs.BoolVar(&a.GRPCEnabled, "grpc", DefaultAgent.GRPCEnabled, "grpc on")
 	a.pollInternval = fs.Int64(
 		"p",
 		second(DefaultAgent.PollInterval),

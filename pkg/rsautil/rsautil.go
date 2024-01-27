@@ -7,68 +7,57 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/sergeizaitcev/metrics/pkg/randutil"
 )
 
-// Generate генерирует и возвращает приватный RSA ключ.
-func Generate(bits int) (*rsa.PrivateKey, error) {
-	key, err := rsa.GenerateKey(randutil.Rand, bits)
+// PrivateKey возвращает приватный RSA ключ из data.
+func PrivateKey(data []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode(data)
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("generate rsa key: %w", err)
+		return nil, fmt.Errorf("parsing private key: %w", err)
 	}
-	return key, nil
+	rsakey, ok := key.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("unsupported private key type: %T", key)
+	}
+	return rsakey, nil
 }
 
-// Save сохраняет приватный RSA ключ в PEM формат.
-func Save(key *rsa.PrivateKey, prefix string) error {
-	pub := key.Public()
-
-	keyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
-	})
-
-	pubPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PUBLIC KEY",
-		Bytes: x509.MarshalPKCS1PublicKey(pub.(*rsa.PublicKey)),
-	})
-
-	prefix = strings.TrimSpace(prefix)
-
-	err := os.WriteFile(prefix+".rsa", keyPEM, 0o600)
-	if err != nil {
-		return fmt.Errorf("write a private key to file: %w", err)
-	}
-
-	err = os.WriteFile(prefix+".rsa.pub", pubPEM, 0o644)
-	if err != nil {
-		return fmt.Errorf("write a public key to file: %w", err)
-	}
-
-	return nil
-}
-
-// Private возвращает приватный RSA ключ из filename.
-func Private(filename string) (*rsa.PrivateKey, error) {
-	block, err := open(filename)
+// PrivateKeyFrom возвращает приватный RSA ключ из файла name.
+func PrivateKeyFrom(name string) (*rsa.PrivateKey, error) {
+	data, err := os.ReadFile(name)
 	if err != nil {
 		return nil, err
 	}
-	return x509.ParsePKCS1PrivateKey(block.Bytes)
+	return PrivateKey(data)
 }
 
-// Public возвращает публичный RSA ключ из filename.
-func Public(filename string) (*rsa.PublicKey, error) {
-	block, err := open(filename)
+// PublicKey возвращает публичный RSA ключ из data.
+func PublicKey(data []byte) (*rsa.PublicKey, error) {
+	block, _ := pem.Decode(data)
+	key, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parsing public key: %w", err)
+	}
+	rsakey, ok := key.(*rsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("unsuppored public key type: %T", key)
+	}
+	return rsakey, nil
+}
+
+// PublicKeyFrom возвращает публичный RSA ключ из файла name.
+func PublicKeyFrom(name string) (*rsa.PublicKey, error) {
+	data, err := os.ReadFile(name)
 	if err != nil {
 		return nil, err
 	}
-	return x509.ParsePKCS1PublicKey(block.Bytes)
+	return PublicKey(data)
 }
 
-// Encrypt шифрует сообщение при помощи публичного ключа.
+// Encrypt шифрует сообщение при помощи публичного RSA ключа.
 func Encrypt(key *rsa.PublicKey, message []byte) ([]byte, error) {
 	hash := sha256.New()
 	msgLen := len(message)
@@ -100,7 +89,7 @@ func Encrypt(key *rsa.PublicKey, message []byte) ([]byte, error) {
 	return encryptedBytes, nil
 }
 
-// Decrypt расшифровывает сообщение при помощи приватного ключа.
+// Decrypt расшифровывает сообщение при помощи приватного RSA ключа.
 func Decrypt(key *rsa.PrivateKey, message []byte) ([]byte, error) {
 	msgLen := len(message)
 	step := key.PublicKey.Size()
@@ -130,13 +119,4 @@ func Decrypt(key *rsa.PrivateKey, message []byte) ([]byte, error) {
 	}
 
 	return decryptedBytes, nil
-}
-
-func open(filename string) (*pem.Block, error) {
-	b, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	block, _ := pem.Decode(b)
-	return block, nil
 }

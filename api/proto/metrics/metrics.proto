@@ -1,0 +1,27 @@
+syntax = 'proto3';
+
+package metrics;
+
+option go_package = "./metrics;metrics";
+
+import "google/protobuf/empty.proto";
+
+service Metrics {
+	rpc Update(UpdateRequest) returns (google.protobuf.Empty) {}
+}
+
+message UpdateRequest {
+	repeated Metric metrics = 1;
+}
+
+enum MetricType {
+	UNSPECIFIED = 0;
+	COUNTER = 1;
+	GAUGE = 2;
+}
+
+message Metric {
+	MetricType type = 1;
+	string name = 2;
+	double value = 3;
+}

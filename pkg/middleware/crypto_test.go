@@ -2,7 +2,6 @@ package middleware_test
 
 import (
 	"bytes"
-	"crypto/rsa"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,14 +13,14 @@ import (
 
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 	"github.com/sergeizaitcev/metrics/pkg/rsautil"
+	"github.com/sergeizaitcev/metrics/testdata"
 )
 
 func TestCrypto(t *testing.T) {
-	key, err := rsautil.Generate(2048)
-	require.NoError(t, err)
+	key, _ := rsautil.PrivateKey(testdata.Private)
+	pub, _ := rsautil.PublicKey(testdata.Public)
 
 	encrypt := func(t *testing.T, message []byte) []byte {
-		pub := key.Public().(*rsa.PublicKey)
 		cypher, err := rsautil.Encrypt(pub, message)
 		require.NoError(t, err)
 		return cypher

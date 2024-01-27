@@ -2,69 +2,50 @@ package rsautil_test
 
 import (
 	"crypto/rsa"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
 
 	"github.com/sergeizaitcev/metrics/pkg/rsautil"
+	"github.com/sergeizaitcev/metrics/testdata"
 )
 
-type RsaSuite struct {
+type CryptoSuite struct {
 	suite.Suite
 
 	private *rsa.PrivateKey
 	public  *rsa.PublicKey
 
-	prefix         string
-	privateKeyPath string
-	publicKeyPath  string
+	privateKey []byte
+	publicKey  []byte
 }
 
 func TestRSA(t *testing.T) {
-	suite.Run(t, new(RsaSuite))
+	suite.Run(t, new(CryptoSuite))
 }
 
-func (suite *RsaSuite) SetupSuite() {
-	dir := suite.T().TempDir()
-	suite.prefix = filepath.Join(dir, "test")
-	suite.privateKeyPath = suite.prefix + ".rsa"
-	suite.publicKeyPath = suite.prefix + ".rsa.pub"
+func (suite *CryptoSuite) SetupSuite() {
+	suite.privateKey = testdata.Private
+	suite.publicKey = testdata.Public
 }
 
-func (suite *RsaSuite) TestA_SaveToFile() {
-	var key *rsa.PrivateKey
-	var err error
-
-	suite.Run("generate", func() {
-		key, err = rsautil.Generate(2048)
-		suite.NoError(err)
-		suite.NotNil(key)
-	})
-
-	suite.Run("save", func() {
-		err = rsautil.Save(key, suite.prefix)
-		suite.NoError(err)
-	})
-}
-
-func (suite *RsaSuite) TestB_ReadFromFile() {
+func (suite *CryptoSuite) TestA_Decode() {
 	var err error
 
 	suite.Run("private", func() {
-		suite.private, err = rsautil.Private(suite.privateKeyPath)
+		suite.private, err = rsautil.PrivateKey(suite.privateKey)
 		suite.NoError(err)
 		suite.NotNil(suite.private)
 	})
 
 	suite.Run("public", func() {
-		suite.public, err = rsautil.Public(suite.publicKeyPath)
+		suite.public, err = rsautil.PublicKey(suite.publicKey)
 		suite.NoError(err)
 		suite.NotNil(suite.public)
 	})
 }
 
-func (suite *RsaSuite) TestC_EncryptingMessage() {
+func (suite *CryptoSuite) TestB_EncryptingMessage() {
 	var cipher []byte
 	var err error
 
