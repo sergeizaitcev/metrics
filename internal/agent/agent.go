@@ -19,6 +19,7 @@ import (
 
 	"github.com/sergeizaitcev/metrics/internal/configs"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
+	"github.com/sergeizaitcev/metrics/pkg/iputil"
 	"github.com/sergeizaitcev/metrics/pkg/logging"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 	"github.com/sergeizaitcev/metrics/pkg/rsautil"
@@ -51,6 +52,7 @@ type Agent struct {
 	client *http.Client
 	logger *logging.Logger
 	key    *rsa.PublicKey
+	ip     string
 }
 
 // New возвращает новый экземпляр Agent.
@@ -76,6 +78,7 @@ func New(config *configs.Agent, opts *AgentOpts) *Agent {
 		client: client,
 		logger: opts.Logger,
 		key:    opts.Key,
+		ip:     iputil.Local().String(),
 	}
 }
 
@@ -220,6 +223,7 @@ func (a *Agent) prepareRequest(
 	req.Header.Add("Accept-Encoding", "gzip")
 	req.Header.Add("Content-Encoding", "gzip")
 	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add(middleware.IPHeader, a.ip)
 
 	if a.config.SHA256Key != "" {
 		hash := signBody(body, a.config.SHA256Key)
@@ -277,7 +281,9 @@ func (a *Agent) sendRequest(req *http.Request) error {
 	for i := 1; i < 4; i++ {
 		res, err := a.client.Do(req)
 		if err == nil {
-			a.logger.Log(logging.LevelDebug, "", "status_code", res.StatusCode)
+			if res.StatusCode != http.StatusOK {
+				a.logger.Log(logging.LevelDebug, "", "status_code", res.StatusCode)
+			}
 			gracefulClose(res)
 			return nil
 		}

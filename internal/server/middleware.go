@@ -10,7 +10,7 @@ import (
 )
 
 // NOTE: необходимо соблюдать порядок мидлварей в следующей последовательности
-// rsa -> gzip -> sign -> trace.
+// rsa -> gzip -> sign -> trace -> subnet.
 func newMiddlewares(config *configs.Server, opts *ServerOpts) []middleware.Middleware {
 	var middlewares []middleware.Middleware
 
@@ -46,5 +46,11 @@ func newMiddlewares(config *configs.Server, opts *ServerOpts) []middleware.Middl
 		}
 	}
 
-	return append(middlewares, middleware.Trace(paramsFunc))
+	middlewares = append(middlewares, middleware.Trace(paramsFunc))
+
+	if subnet := config.CIDR(); subnet != nil {
+		middlewares = append(middlewares, middleware.Subnet(subnet))
+	}
+
+	return middlewares
 }
