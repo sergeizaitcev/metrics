@@ -34,7 +34,7 @@ func Run(ctx context.Context, c *configs.Agent) (err error) {
 		senders.WithSHA256Key(c.SHA256Key),
 	}
 
-	var sender senders.Sender
+	var sender Sender
 	if c.GRPCEnabled {
 		creds := insecure.NewCredentials()
 		conn, err := grpc.Dial(c.Address, grpc.WithTransportCredentials(creds))

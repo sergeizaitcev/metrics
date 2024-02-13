@@ -22,16 +22,16 @@ import (
 	"github.com/sergeizaitcev/metrics/pkg/sign"
 )
 
-// senderHTTP определяет агент для сбора и отправки метрик на HTTP-сервер.
-type senderHTTP struct {
+// SenderHTTP определяет агент для сбора и отправки метрик на HTTP-сервер.
+type SenderHTTP struct {
 	addr   string
 	client *http.Client
 	opts   commonOptions
 }
 
 // HTTP возвращает новый экземпляр Sender для HTTP-сервера.
-func HTTP(addr string, opts ...Option) Sender {
-	sender := &senderHTTP{
+func HTTP(addr string, opts ...Option) *SenderHTTP {
+	sender := &SenderHTTP{
 		addr:   addr,
 		client: http.DefaultClient,
 	}
@@ -41,7 +41,7 @@ func HTTP(addr string, opts ...Option) Sender {
 	return sender
 }
 
-func (s *senderHTTP) Send(ctx context.Context, values []metrics.Metric) error {
+func (s *SenderHTTP) Send(ctx context.Context, values []metrics.Metric) error {
 	req, err := s.prepareRequest(ctx, values)
 	if err != nil {
 		return fmt.Errorf("request preparation: %w", err)
@@ -55,7 +55,7 @@ func (s *senderHTTP) Send(ctx context.Context, values []metrics.Metric) error {
 	return nil
 }
 
-func (s *senderHTTP) prepareRequest(
+func (s *SenderHTTP) prepareRequest(
 	ctx context.Context,
 	values []metrics.Metric,
 ) (*http.Request, error) {
@@ -89,7 +89,7 @@ func (s *senderHTTP) prepareRequest(
 	return req, nil
 }
 
-func (s *senderHTTP) newBody(values []metrics.Metric) (*bytes.Buffer, error) {
+func (s *SenderHTTP) newBody(values []metrics.Metric) (*bytes.Buffer, error) {
 	b, err := json.Marshal(&values)
 	if err != nil {
 		return nil, fmt.Errorf("encoding metrics: %w", err)
@@ -122,7 +122,7 @@ func (s *senderHTTP) newBody(values []metrics.Metric) (*bytes.Buffer, error) {
 	return buf, nil
 }
 
-func (s *senderHTTP) sendRequest(req *http.Request) error {
+func (s *SenderHTTP) sendRequest(req *http.Request) error {
 	ctx := req.Context()
 
 	// NOTE: Если не удалось отправить запрос за установленное время,

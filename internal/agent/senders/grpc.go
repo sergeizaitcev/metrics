@@ -11,15 +11,15 @@ import (
 	"github.com/sergeizaitcev/metrics/pkg/interceptors/md"
 )
 
-// senderGRPC определяет агент для отправки метрик на gRPC-сервер.
-type senderGRPC struct {
+// SenderGRPC определяет агент для отправки метрик на gRPC-сервер.
+type SenderGRPC struct {
 	client pb.MetricsClient
 	opts   commonOptions
 }
 
 // GRPC возвращает новый экземпляр Sender для gRPC-сервера.
-func GRPC(conn *grpc.ClientConn, opts ...Option) Sender {
-	sender := &senderGRPC{
+func GRPC(conn *grpc.ClientConn, opts ...Option) *SenderGRPC {
+	sender := &SenderGRPC{
 		client: pb.NewMetricsClient(conn),
 	}
 	for _, opt := range opts {
@@ -28,7 +28,7 @@ func GRPC(conn *grpc.ClientConn, opts ...Option) Sender {
 	return sender
 }
 
-func (s *senderGRPC) Send(ctx context.Context, values []metrics.Metric) error {
+func (s *SenderGRPC) Send(ctx context.Context, values []metrics.Metric) error {
 	ctx = s.setMetadata(ctx, values)
 
 	req := &pb.UpdateRequest{
@@ -46,7 +46,7 @@ func (s *senderGRPC) Send(ctx context.Context, values []metrics.Metric) error {
 	return nil
 }
 
-func (s *senderGRPC) setMetadata(ctx context.Context, values []metrics.Metric) context.Context {
+func (s *SenderGRPC) setMetadata(ctx context.Context, values []metrics.Metric) context.Context {
 	ctx = md.SetRealIP(ctx, s.opts.ip)
 	if s.opts.sha256key == "" {
 		ctx = md.SetHash256(ctx, metrics.Sign(s.opts.sha256key, values))

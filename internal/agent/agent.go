@@ -5,15 +5,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sergeizaitcev/metrics/internal/agent/senders"
 	"github.com/sergeizaitcev/metrics/internal/configs"
 	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/pkg/logging"
 )
 
+// Sender описывает интерфейс отправителя метрик на сервер.
+type Sender interface {
+	// Send отправляет метрики на сервер.
+	Send(ctx context.Context, values []metrics.Metric) error
+}
+
 // Agent определяет агент для сбора и отправки метрик на сервер.
 type Agent struct {
-	sender         senders.Sender
+	sender         Sender
 	logger         *logging.Logger
 	pollInterval   time.Duration
 	reportInterval time.Duration
@@ -21,7 +26,7 @@ type Agent struct {
 }
 
 // NewAgent инициализирует и возвращает новый экземпляр Agent.
-func NewAgent(sender senders.Sender, config *configs.Agent) *Agent {
+func NewAgent(sender Sender, config *configs.Agent) *Agent {
 	agent := &Agent{
 		sender:         sender,
 		logger:         logging.Discard(),
