@@ -1,11 +1,7 @@
 package agent_test
 
 import (
-	"bytes"
 	"context"
-	"io"
-	"net/http"
-	"os"
 	"testing"
 	"time"
 
@@ -14,35 +10,19 @@ import (
 
 	"github.com/sergeizaitcev/metrics/internal/agent"
 	"github.com/sergeizaitcev/metrics/internal/configs"
-	"github.com/sergeizaitcev/metrics/pkg/logging"
+	"github.com/sergeizaitcev/metrics/internal/metrics"
 	"github.com/sergeizaitcev/metrics/pkg/testutil"
 )
 
-var _ http.RoundTripper = (*transportMock)(nil)
+var _ agent.Sender = (*senderMock)(nil)
 
-type transportMock struct {
+type senderMock struct {
 	mock.Mock
 }
 
-func (m *transportMock) RoundTrip(req *http.Request) (*http.Response, error) {
-	args := m.Called(req.Method, req.URL.EscapedPath())
-
-	err := args.Error(1)
-	if err != nil {
-		return nil, err
-	}
-
-	statusCode := args.Int(0)
-
-	res := &http.Response{
-		StatusCode: statusCode,
-		Status:     http.StatusText(statusCode),
-		Header:     make(http.Header),
-		Body:       io.NopCloser(bytes.NewReader(nil)),
-		Request:    req,
-	}
-
-	return res, nil
+func (m *senderMock) Send(ctx context.Context, values []metrics.Metric) error {
+	args := m.Called(ctx, values)
+	return args.Error(0)
 }
 
 func TestAgent(t *testing.T) {
@@ -51,21 +31,24 @@ func TestAgent(t *testing.T) {
 	t.Run("run", func(t *testing.T) {
 		config := &configs.Agent{
 			Address:        "localhost",
-			ReportInterval: 100 * time.Millisecond,
-			PollInterval:   60 * time.Millisecond,
+			ReportInterval: 150 * time.Millisecond,
+			PollInterval:   100 * time.Millisecond,
 			RateLimit:      1,
 		}
-		m := new(transportMock)
-		opts := &agent.AgentOpts{
-			Logger:    logging.New(os.Stdout, logging.LevelDebug),
-			Transport: m,
-		}
-		a := agent.New(config, opts)
 
-		cancelCtx, cancel := context.WithTimeout(ctx, 110*time.Millisecond)
+		values := []metrics.Metric{
+			metrics.Counter("counter", 1),
+			metrics.Gauge("gauge", 1.1),
+		}
+
+		sender := new(senderMock)
+		sender.On("Send", mock.Anything, values).Return(nil)
+
+		a := agent.NewAgent(sender, config)
+
+		cancelCtx, cancel := context.WithTimeout(ctx, 180*time.Millisecond)
 		defer cancel()
 
-		m.On("RoundTrip", http.MethodPost, "/updates/").Return(http.StatusOK, nil)
 		require.NoError(t, a.Run(cancelCtx))
 	})
 }

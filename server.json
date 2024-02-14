@@ -1,8 +1,9 @@
 {
   "level": "debug",
   "address": "localhost:8080",
+  "stream_address": "localhost:8090",
   "key": "mykey",
-  "private_key_path": "server.rsa",
+  "private_key_path": "testdata/private.pem",
   "database_dsn": "",
   "file_storage_path": "/tmp/metrics-db.wal",
   "store_interval": 10,

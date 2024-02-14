@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
+	"net"
 	"time"
 
 	"github.com/sergeizaitcev/metrics/pkg/commands"
@@ -15,12 +17,14 @@ var DefaultServer = &Server{
 	Level:           logging.LevelInfo,
 	ConfigPath:      "",
 	Address:         "localhost:8080",
+	StreamAddress:   "localhost:8090",
 	SHA256Key:       "",
 	PrivateKeyPath:  "",
 	DatabaseDSN:     "",
 	FileStoragePath: "/tmp/metrics-db.wal",
 	StoreInterval:   300 * time.Second,
 	Restore:         true,
+	TrustedSubnet:   "",
 }
 
 var _ commands.Config = (*Server)(nil)
@@ -41,6 +45,11 @@ type Server struct {
 	//
 	// По умолчанию "localhost:8080".
 	Address string `env:"ADDRESS" json:"address"`
+
+	// Адрес стриминг-сервера.
+	//
+	// По умолчанию "localhost:8090".
+	StreamAddress string `env:"STREAM_ADDRESS" json:"stream_address"`
 
 	// Ключ подписи данных. Если ключ пуст, то данные не подписываются.
 	SHA256Key string `env:"KEY" json:"key"`
@@ -66,7 +75,15 @@ type Server struct {
 	// По умолчанию true.
 	Restore bool `env:"RESTORE" json:"restore"`
 
+	// Доверенная подсеть.
+	TrustedSubnet string `env:"TRUSTED_SUBNET" json:"trusted_subnet"`
+
 	storeInterval *int64
+}
+
+func (s *Server) CIDR() *net.IPNet {
+	_, subnet, _ := net.ParseCIDR(s.TrustedSubnet)
+	return subnet
 }
 
 func (s *Server) ReadFrom(r io.Reader) (int64, error) {
@@ -85,8 +102,17 @@ func (s *Server) Validate() error {
 	if s.Address == "" {
 		return errors.New("address must be not empty")
 	}
+	if s.StreamAddress == "" {
+		return errors.New("stream address must be not empty")
+	}
 	if s.StoreInterval < 0 {
 		return errors.New("store interval must be is greater than or equal to zero")
+	}
+	if s.TrustedSubnet != "" {
+		_, _, err := net.ParseCIDR(s.TrustedSubnet)
+		if err != nil {
+			return fmt.Errorf("trusted subnet must have the CIDR format: %w", err)
+		}
 	}
 	return nil
 }
@@ -95,6 +121,7 @@ func (s *Server) SetFlags(fs *flag.FlagSet) {
 	fs.Var(&s.ConfigPath, "c", "path to config")
 	fs.TextVar(&s.Level, "v", DefaultServer.Level, "logging level")
 	fs.StringVar(&s.Address, "a", DefaultServer.Address, "server address")
+	fs.StringVar(&s.StreamAddress, "s", DefaultServer.StreamAddress, "stream server address")
 	fs.StringVar(&s.SHA256Key, "k", DefaultServer.SHA256Key, "secret sha256 key")
 	fs.StringVar(
 		&s.PrivateKeyPath,
@@ -110,6 +137,7 @@ func (s *Server) SetFlags(fs *flag.FlagSet) {
 		"file storage path",
 	)
 	fs.BoolVar(&s.Restore, "r", DefaultServer.Restore, "restore")
+	fs.StringVar(&s.TrustedSubnet, "t", DefaultServer.TrustedSubnet, "trusted subnet")
 	s.storeInterval = fs.Int64(
 		"i",
 		second(DefaultServer.StoreInterval),

@@ -1,36 +1,32 @@
-MODULE := $(shell head -n1 go.mod | sed -e 's/module //')
-BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD)
+module := $(shell head -n1 go.mod | sed -e 's/module //')
+branch_name := $(shell git rev-parse --abbrev-ref HEAD)
 # VERSION := $(shell git describe --tags)
-VERSION := $(BRANCH_NAME)
-DATE := $(shell date +'%Y/%m/%d %H:%M:%S')
-COMMIT := $(shell git rev-parse --short HEAD)
-GO_BUILD := go build -ldflags "-X '$(MODULE)/version.Build=$(VERSION)' -X '$(MODULE)/version.Date=$(DATE)' -X '$(MODULE)/version.Commit=$(COMMIT)'"
+version := $(BRANCH_NAME)
+date := $(shell date +'%Y/%m/%d %H:%M:%S')
+commit := $(shell git rev-parse --short HEAD)
+go_build := go build -ldflags "-X '$(MODULE)/version.Build=$(VERSION)' -X '$(MODULE)/version.Date=$(DATE)' -X '$(MODULE)/version.Commit=$(COMMIT)'"
 
-STATIC_LINT := $(GOPATH)/bin/staticlint
-
-$(STATIC_LINT):
+static_lint := $(GOPATH)/bin/staticlint
+$(static_lint):
 	@go install ./cmd/staticlint
 
-RSA_KEYGEN := $(GOPATH)/bin/rsakeygen
+protoc_gen_go := $(GOPATH)/bin/protoc-gen-go
+$(protoc_gen_go):
+	@go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 
-$(RSA_KEYGEN):
-	@go install ./cmd/rsakeygen
+protoc_gen_go_grpc := $(GOPATH)/bin/protoc-gen-go-grpc
+$(protoc_gen_go_grpc):
+	@go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
-SERVER_PORT := $(shell random unused-port)
-TEMP_FILE := $(shell random tempfile)
-DATABASE_DSN := postgres://postgres:postgres@localhost:5432/practicum?sslmode=disable
-ADDRESS := localhost:$(SERVER_PORT)
+server_port := $(shell random unused-port)
+temp_file := $(shell random tempfile)
+database_dsn := postgres://postgres:postgres@localhost:5432/practicum?sslmode=disable
+address := localhost:$(SERVER_PORT)
 
 .DEFAULT_GOAL := all
 
 .PHONY: all
 all: test lint autotest
-
-.PHONY: keygen
-keygen: $(RSA_KEYGEN)
-ifeq ("$(wildcard server.rsa")", "")
-	@$(RSA_KEYGEN) -b 4096 -f server
-endif
 
 .PHONY: up
 up:
@@ -41,7 +37,7 @@ down:
 	@docker-compose -f ./scripts/docker-compose.yml down
 
 .PHONY: lint
-lint: $(STATIC_LINT)
+lint: $(static_lint)
 	@go vet -vettool=$(shell which statictest) ./...
 	@go vet -vettool=$(shell which staticlint) ./...
 
@@ -59,18 +55,27 @@ clean:
 
 .PHONY: build
 build:
-	@$(GO_BUILD) -o ./cmd/agent/agent ./cmd/agent
-	@$(GO_BUILD) -o ./cmd/server/server ./cmd/server
+	@$(go_build) -o ./cmd/agent/agent ./cmd/agent
+	@$(go_build) -o ./cmd/server/server ./cmd/server
+
+.PHONY: proto
+proto: $(protoc_gen_go) $(protoc_gen_go_grpc)
+	@protoc --proto_path=api/proto --go_out=api/proto --go-grpc_out=api/proto metrics/metrics.proto
+
+.PHONY: keygen
+keygen:
+	@openssl genrsa -out testdata/private.pem 4096
+	@openssl rsa -in testdata/private.pem -outform PEM -pubout -out testdata/public.pem 
 
 .PHONY: autotest
-autotest: build $(BRANCH_NAME)
+autotest: build $(branch_name)
 
 iter%:
 	@metricstest -test.v -test.run=^TestIteration$*[AB]?$$ \
 		-agent-binary-path=cmd/agent/agent \
 		-binary-path=cmd/server/server \
-		-server-port=$(SERVER_PORT) \
-		-database-dsn=$(DATABASE_DSN) \
-		-file-storage-path=$(TEMP_FILE) \
-		-key=$(TEMP_FILE) \
+		-server-port=$(server_port) \
+		-database-dsn=$(database_dsn) \
+		-file-storage-path=$(temp_file) \
+		-key=$(temp_file) \
 		-source-path=.

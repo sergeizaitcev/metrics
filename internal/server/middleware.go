@@ -3,19 +3,18 @@ package server
 import (
 	"compress/flate"
 
-	"github.com/sergeizaitcev/metrics/internal/configs"
 	"github.com/sergeizaitcev/metrics/pkg/logging"
 	"github.com/sergeizaitcev/metrics/pkg/middleware"
 	"github.com/sergeizaitcev/metrics/pkg/sign"
 )
 
 // NOTE: необходимо соблюдать порядок мидлварей в следующей последовательности
-// rsa -> gzip -> sign -> trace.
-func newMiddlewares(config *configs.Server, opts *ServerOpts) []middleware.Middleware {
+// rsa -> gzip -> sign -> trace -> subnet.
+func (s *Server) middlewares() []middleware.Middleware {
 	var middlewares []middleware.Middleware
 
-	if opts.Key != nil {
-		middlewares = append(middlewares, middleware.RSA(opts.Key))
+	if s.opts.Key != nil {
+		middlewares = append(middlewares, middleware.RSA(s.opts.Key))
 	}
 
 	middlewares = append(
@@ -23,20 +22,20 @@ func newMiddlewares(config *configs.Server, opts *ServerOpts) []middleware.Middl
 		middleware.Gzip(flate.BestCompression, "application/json", "text/html"),
 	)
 
-	if config.SHA256Key != "" {
-		signer := sign.Signer(config.SHA256Key)
+	if s.config.SHA256Key != "" {
+		signer := sign.Signer(s.config.SHA256Key)
 		middlewares = append(middlewares, middleware.Sign(signer))
 	}
 
 	paramsFunc := func(p *middleware.Params) {
 		if p.Error != nil {
-			opts.Logger.Log(logging.LevelError, p.Error.Error(),
+			s.opts.Logger.Log(logging.LevelError, p.Error.Error(),
 				"method", p.Method,
 				"path", p.Path,
 				"status_code", p.StatusCode,
 			)
 		} else {
-			opts.Logger.Log(logging.LevelInfo, "",
+			s.opts.Logger.Log(logging.LevelInfo, "",
 				"method", p.Method,
 				"path", p.Path,
 				"status_code", p.StatusCode,
@@ -46,5 +45,11 @@ func newMiddlewares(config *configs.Server, opts *ServerOpts) []middleware.Middl
 		}
 	}
 
-	return append(middlewares, middleware.Trace(paramsFunc))
+	middlewares = append(middlewares, middleware.Trace(paramsFunc))
+
+	if subnet := s.config.CIDR(); subnet != nil {
+		middlewares = append(middlewares, middleware.Subnet(subnet))
+	}
+
+	return middlewares
 }

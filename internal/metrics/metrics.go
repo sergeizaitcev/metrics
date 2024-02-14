@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"unsafe"
+
+	pb "github.com/sergeizaitcev/metrics/api/proto/metrics"
 )
 
 // Kind определяет тип метрики.
@@ -101,6 +103,38 @@ func Gauge(name string, value float64) Metric {
 		name:  name,
 		value: gaugeValue(value),
 	}
+}
+
+// FromProto конвертирует *pb.UpdateRequest_Metrics в метрику и возвращает её.
+func FromProto(value *pb.Metric) Metric {
+	var m Metric
+
+	switch value.GetType() {
+	case pb.MetricType_COUNTER:
+		m = Counter(value.GetName(), int64(value.GetValue()))
+	case pb.MetricType_GAUGE:
+		m = Gauge(value.GetName(), value.GetValue())
+	}
+
+	return m
+}
+
+// Proto конвертирует метрику в *pb.UpdateRequest_Metrics.
+func (m *Metric) Proto() *pb.Metric {
+	value := new(pb.Metric)
+
+	switch m.Kind() {
+	case KindCounter:
+		value.Type = pb.MetricType_COUNTER
+		value.Name = m.Name()
+		value.Value = float64(m.Int64())
+	case KindGauge:
+		value.Type = pb.MetricType_GAUGE
+		value.Name = m.Name()
+		value.Value = m.Float64()
+	}
+
+	return value
 }
 
 // Kind возвращает тип метрики.
